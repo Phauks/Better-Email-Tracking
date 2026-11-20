@@ -1,5 +1,5 @@
+import type { NudgeEnv } from "../features/nudges/env";
 import { decryptSecret } from "../lib/crypto";
-import type { NudgeEnv } from "../nudges/env";
 import { GmailConnector } from "./gmail";
 import { type FetchLike, refreshAccessToken } from "./google-oauth";
 import type { ConnectorRecord, MailboxConnector } from "./types";

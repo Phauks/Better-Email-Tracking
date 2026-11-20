@@ -3,6 +3,10 @@ import type {
 	StartConnectorResponse,
 } from "@bet/shared";
 import { describe, expect, it } from "vitest";
+import { apiModule } from "../core/api";
+import type { NudgeEnv } from "../features/nudges/env";
+import { createNudgesModule } from "../features/nudges/index";
+import { MemoryNudgeStore } from "../features/nudges/store/memory";
 import {
 	base64UrlDecode,
 	decryptSecret,
@@ -10,10 +14,6 @@ import {
 	signState,
 	verifyState,
 } from "../lib/crypto";
-import type { NudgeEnv } from "../nudges/env";
-import { createNudgesModule } from "../nudges/module";
-import { MemoryNudgeStore } from "../nudges/store/memory";
-import { apiModule } from "../routes/api";
 import { setup, T0 } from "../test-utils";
 import { addressOf, GmailConnector, inspectGmailThread } from "./gmail";
 import { GOOGLE_TOKEN_URL } from "./google-oauth";
@@ -283,7 +283,7 @@ describe("Google OAuth connector", () => {
 		const nudges = new MemoryNudgeStore();
 		const google = mockGoogle();
 		const module = createNudgesModule({
-			nudgeStore: () => nudges,
+			store: () => nudges,
 			fetch: google.fetchImpl,
 		});
 		const s = setup((withSecrets ? env : {}) as Partial<NudgeEnv>, [

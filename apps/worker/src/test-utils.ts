@@ -1,7 +1,7 @@
 import type { RegisterMessageRequest } from "@bet/shared";
 import { createApp } from "./app";
+import { MemoryStore } from "./core/store/memory";
 import type { Env } from "./env";
-import { MemoryStore } from "./store/memory";
 import type { TrackerModule } from "./types";
 
 export const TOKEN = "test-token";

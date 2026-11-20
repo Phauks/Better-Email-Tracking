@@ -7,15 +7,19 @@ authenticated `/api/*` used by the extension.
 ## Layout
 
 - `src/index.ts`: Worker entry (`fetch` + `scheduled`, every 15 minutes)
-- `src/app.ts`: `createApp(deps)` wires store, config, CORS and auth, then mounts modules
-- `src/modules.ts`: feature module list. Add a `TrackerModule` here to add routes or cron work
-- `src/routes/`: `tracking.ts` (pixel/click), `api.ts` (JSON API)
-- `src/services/`: event recording and own-open suppression, summaries, retention
-- `src/store/`: `Store` interface, `D1Store` (production), `MemoryStore` (tests)
-- `src/documents/`: tracked documents module (own `DocumentStore`, R2 `ObjectStore`, viewer page)
-- `src/campaigns/`: mail merge module with its own `CampaignStore` (D1 + memory), routes, stats
-- `src/nudges/`: follow-up nudges module (routes, scheduler `runner.ts`, send windows, its own `NudgeStore`)
+- `src/app.ts`: `createApp(deps)` wires store, config, CORS and auth, then mounts modules;
+  `runScheduled` runs each module's `daily` hook (03:00 UTC run) and `scheduled` hook
+- `src/modules.ts`: the module list. Add a `TrackerModule` here to add routes or cron work
+- `src/core/`: message tracking. `tracking.ts` (pixel/click), `api.ts` (JSON API),
+  `events.ts` (recording, own-open suppression), `summary.ts`, `retention.ts`,
+  `validate.ts`, and `store/` (`Store` interface, `D1Store`, `MemoryStore` for tests)
+- `src/features/<name>/`: one folder per feature module, each with `index.ts` (the module
+  and its injectable deps), `routes.ts`, `validate.ts` and `store/{types,d1,memory}.ts`
+  - `documents/`: tracked documents (R2 `ObjectStore` in `objects.ts`, viewer page in `viewer-page.ts`, `stats.ts`)
+  - `campaigns/`: mail merge queue and per-campaign stats (`stats.ts`)
+  - `nudges/`: follow-up nudges (scheduler `runner.ts`, send windows `schedule.ts`, secrets `env.ts`)
 - `src/connectors/`: `MailboxConnector` interface, Gmail implementation, Google OAuth, MIME builder, `FakeMailbox` for tests
+- `src/lib/`: shared helpers (`parse.ts` request parsing, `d1.ts` query helpers, auth, CORS, hashing, crypto)
 - `migrations/`: D1 schema
 
 ## Setup and deploy
