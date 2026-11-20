@@ -47,6 +47,9 @@ export function describeEvent(e: {
 }): { title: string; detail: string } {
 	const who = recipientLabel(e.recipients);
 	const subject = e.subject.trim() || "(no subject)";
+	if (e.type === "reply") return { title: `${who} replied`, detail: subject };
+	if (e.type === "nudge_sent")
+		return { title: `Follow-up sent to ${who}`, detail: subject };
 	if (e.type === "click") {
 		return {
 			title: `${who} clicked a link`,
@@ -55,6 +58,29 @@ export function describeEvent(e: {
 	}
 	const verb = isMachineEvent(e) ? "had a machine open" : "opened";
 	return { title: `${who} ${verb}`, detail: subject };
+}
+
+/** Source label for opens/clicks; nudge events come from the follow-up scheduler. */
+export function eventSourceLabel(
+	e: Pick<TrackingEvent, "type" | "source">,
+): string {
+	return e.type === "open" || e.type === "click"
+		? SOURCE_LABEL[e.source]
+		: "Follow-ups";
+}
+
+/** Icon for an event in lists and timelines. */
+export function eventIcon(e: Pick<TrackingEvent, "type" | "source">): IconName {
+	switch (e.type) {
+		case "click":
+			return "cursor-click";
+		case "nudge_sent":
+			return "arrow-bend-up-right";
+		case "reply":
+			return "chat-circle-text";
+		default:
+			return isMachineEvent(e) ? "robot" : "eye";
+	}
 }
 
 export function shortUrl(url: string): string {

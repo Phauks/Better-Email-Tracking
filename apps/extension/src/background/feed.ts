@@ -70,7 +70,7 @@ async function notify(events: FeedEvent[]): Promise<void> {
 		await chrome.notifications.create(`bet-summary-${Date.now()}`, {
 			type: "list",
 			iconUrl: ICON,
-			title: `${events.length} new opens and clicks`,
+			title: `${events.length} new tracking updates`,
 			message: "",
 			items: events.slice(0, 5).map((e) => {
 				const d = describeEvent(e);

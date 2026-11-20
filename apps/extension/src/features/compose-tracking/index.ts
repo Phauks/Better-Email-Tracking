@@ -7,6 +7,7 @@ import type {
 } from "../../providers/types";
 import { ICONS } from "../../ui/icons";
 import { type ComposeMode, getMode, nextMode, setMode } from "../compose-mode";
+import { emitTrackedSent } from "../sent-events";
 import {
 	errorMessage,
 	neverTrackReason,
@@ -78,9 +79,20 @@ async function trackShared(ctx: FeatureContext, session: ComposeSession) {
 		return "continue" as const;
 	}
 	session.setBodyHtml(prepared.html);
+	const { to, cc } = session.getRecipients();
 	session.onSent((info) => {
-		ctx.api.markSent(id, { sentAt: Date.now(), ...info }).catch((err) => {
+		const sentAt = Date.now();
+		ctx.api.markSent(id, { sentAt, ...info }).catch((err) => {
 			console.warn("[bet] markSent failed", err);
+		});
+		emitTrackedSent({
+			session,
+			messageId: id,
+			mode: "shared",
+			sentAt,
+			to,
+			cc,
+			...info,
 		});
 	});
 	return "continue" as const;

@@ -3,6 +3,10 @@ import type {
 	RegisterMessageRequest,
 	ThreadStatusResponse,
 } from "@bet/shared";
+import type {
+	NudgeBgRequest,
+	NudgeBgResponseMap,
+} from "./features/follow-up/messages";
 
 /**
  * Typed messages from content scripts and pages to the background service worker.
@@ -15,9 +19,10 @@ export type BgRequest =
 	| { type: "bet:threadStatus"; threadIds: string[] }
 	| { type: "bet:ownerViews"; messageIds: string[] }
 	| { type: "bet:pollNow" }
-	| { type: "bet:markSeen" };
+	| { type: "bet:markSeen" }
+	| NudgeBgRequest;
 
-export interface BgResponseMap {
+export interface BgResponseMap extends NudgeBgResponseMap {
 	"bet:register": null;
 	"bet:markSent": null;
 	"bet:threadStatus": ThreadStatusResponse;

@@ -3,6 +3,7 @@ import "@inboxsdk/core/background.js";
 import { listenForBgRequests } from "../messaging";
 import { loadSettings } from "../settings";
 import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
+import { nudgeHandlers } from "./nudges";
 
 const POLL_ALARM = "bet-poll-feed";
 
@@ -65,6 +66,7 @@ listenForBgRequests({
 		await markAllSeen();
 		return null;
 	},
+	...nudgeHandlers,
 });
 
 ensureAlarm();

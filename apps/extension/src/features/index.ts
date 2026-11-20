@@ -1,4 +1,5 @@
 import { composeTracking } from "./compose-tracking";
+import { followUp } from "./follow-up";
 import { individualSend } from "./individual-send";
 import { ownOpen } from "./own-open";
 import { sentStatus } from "./sent-status";
@@ -15,4 +16,5 @@ export const FEATURES: Feature[] = [
 	composeTracking,
 	ownOpen,
 	sentStatus,
+	followUp,
 ];

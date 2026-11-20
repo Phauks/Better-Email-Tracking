@@ -59,6 +59,9 @@ export interface CreateNudgeRequest {
 	/** Also stop once the recipient opens (default false). Replies always stop. */
 	stopOnOpen?: boolean;
 	sendWindow?: SendWindow;
+	/** Who nudges go to (the original's visible To/CC). Defaults to the message recipients. BCC: never. */
+	to?: Recipient[];
+	cc?: Recipient[];
 	/** Lets the extension create a sequence before its markSent call lands. */
 	providerThreadId?: string;
 	sentAt?: number;
@@ -197,7 +200,7 @@ const PLACEHOLDER = /\{\{\s*(firstName|name|email)\s*(?:\|([^}]*))?\}\}/g;
 /**
  * Fills {{firstName}}, {{name}} and {{email}} from one recipient. `{{firstName|there}}`
  * uses "there" when the value is unknown. With several recipients the fallback is used,
- * since one name would be wrong for the others. Values are HTML-escaped.
+ * since one name would be wrong for the others. Recipient values are HTML-escaped.
  */
 export function renderTemplate(
 	template: string,
@@ -215,8 +218,9 @@ export function renderTemplate(
 				else if (key === "name") value = one.name?.trim() ?? "";
 				else value = one.email;
 			}
-			const out = value || (fallback ?? "").trim();
-			return html ? escapeHtml(out) : out;
+			// The fallback is part of the template, so it's already in the template's format.
+			if (!value) return (fallback ?? "").trim();
+			return html ? escapeHtml(value) : value;
 		},
 	);
 }
