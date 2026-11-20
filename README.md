@@ -12,11 +12,11 @@ Self-hosted open and click tracking for Gmail, built for one person. No "Sent wi
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `packages/shared` | Provider-neutral HTTP contract, URL builders, HTML instrumentation, request classification |
-| `apps/worker` | Cloudflare Worker (Hono + D1): pixel, click redirect, API, retention cron. See its README to deploy |
-| `apps/extension` | Chrome MV3 extension (Svelte 5, Vite, InboxSDK for Gmail). See its README to load it |
+| Path              | What                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `packages/shared` | Provider-neutral HTTP contract, URL builders, HTML instrumentation, request classification          |
+| `apps/worker`     | Cloudflare Worker (Hono + D1): pixel, click redirect, API, retention cron. See its README to deploy |
+| `apps/extension`  | Chrome MV3 extension (Svelte 5, Vite, InboxSDK for Gmail). See its README to load it                |
 
 Both apps are modular: Worker features register in `apps/worker/src/modules.ts`, extension features in `apps/extension/src/features/index.ts`, and mail clients behind `MailClientAdapter` in `apps/extension/src/providers/` (Gmail today; Outlook or Yahoo can be added as new adapters).
 
