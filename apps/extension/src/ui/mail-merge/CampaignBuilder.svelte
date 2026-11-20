@@ -24,10 +24,23 @@
 		GMAIL_LIMITS_URL,
 		issueText,
 	} from "../../lib/campaigns";
+	import {
+		campaignFollowUp,
+		DEFAULT_NUDGES,
+		describePolicy,
+		type FollowUpChoice,
+		type NudgeDefaults,
+		normalizePolicy,
+		previewNudge,
+		resolveChoice,
+		sendWindowFor,
+	} from "../../lib/nudges";
 	import { plural } from "../../lib/time";
 	import { loadSettings } from "../../settings";
 	import Icon from "../components/Icon.svelte";
 	import { pageApi } from "../api";
+	import ConnectorNotice from "../follow-ups/ConnectorNotice.svelte";
+	import FollowUpPolicyFields from "../follow-ups/FollowUpPolicyFields.svelte";
 	import { dispatchToMailTabs, MERGE_PROVIDER, NO_MAIL_TAB, SENDING_FROM_TAB } from "./api";
 
 	let {
@@ -62,9 +75,21 @@
 	let bodyEl = $state<HTMLTextAreaElement>();
 	let lastFocus: "subject" | "body" = "body";
 
+	// "Follow up until reply": off, the default policy from settings, or a custom one.
+	let followKind = $state<FollowUpChoice["kind"]>("off");
+	let nudgeDefaults = $state<NudgeDefaults>(structuredClone(DEFAULT_NUDGES) as NudgeDefaults);
+	let customFollowUp = $state(customFrom(DEFAULT_NUDGES));
+
+	function customFrom(d: NudgeDefaults) {
+		return { ...normalizePolicy(d), text: d.text, stopOnOpen: d.stopOnOpen };
+	}
+
 	onMount(() => {
 		void loadSettings().then((s) => {
 			settings.trackLinks = s.trackLinks;
+			nudgeDefaults = s.nudges;
+			customFollowUp = customFrom(s.nudges);
+			if (s.nudges.enabledByDefault) followKind = "default";
 		});
 	});
 
@@ -124,6 +149,20 @@
 	const current = $derived(preview[Math.min(previewIndex, preview.length - 1)]);
 	const tooMany = $derived(recipients.length > CAMPAIGN_LIMITS.maxRecipients);
 
+	const followChoice = $derived<FollowUpChoice>(
+		followKind === "custom"
+			? {
+					kind: "custom",
+					policy: normalizePolicy(customFollowUp, nudgeDefaults),
+					text: customFollowUp.text,
+					stopOnOpen: customFollowUp.stopOnOpen,
+				}
+			: { kind: followKind },
+	);
+	/** Follow-up previews address the first recipient that will be sent, with their fields. */
+	const firstSendable = $derived(preview.find((p) => !p.blocked)?.recipient);
+	const previewTo = $derived(firstSendable ? [{ email: firstSendable.email, ...(firstSendable.name ? { name: firstSendable.name } : {}) }] : []);
+
 	const canNext = $derived(
 		step === 0
 			? recipients.length > 0 && !tooMany
@@ -167,6 +206,10 @@
 				recipients,
 				settings: { ...settings },
 				start,
+				followUp: campaignFollowUp(
+					resolveChoice(followChoice, nudgeDefaults),
+					sendWindowFor(nudgeDefaults, Intl.DateTimeFormat().resolvedOptions().timeZone),
+				),
 			});
 			const api = await pageApi();
 			await api.createCampaign(req);
@@ -332,6 +375,34 @@
 				After {settings.perRunCap} emails the campaign pauses until you resume it.
 				This run takes about {estimateMinutes(sendable, settings)} min. Keep a Gmail tab open while it sends.
 			</p>
+
+			<fieldset class="follow">
+				<legend><Icon name="alarm" /> Follow up until reply</legend>
+				<p class="muted small">
+					Each copy gets its own reply in the same thread, from your connected Gmail, until that recipient answers.
+					Nudges can use the campaign's fields, like {"{{first_name|there}}"}.
+				</p>
+				<div class="kinds">
+					<label class="check"><input type="radio" bind:group={followKind} value="off" /> Off</label>
+					<label class="check">
+						<input type="radio" bind:group={followKind} value="default" /> Default
+						<span class="muted small">({describePolicy(nudgeDefaults)})</span>
+					</label>
+					<label class="check"><input type="radio" bind:group={followKind} value="custom" /> Custom</label>
+				</div>
+				{#if followKind === "custom"}
+					<FollowUpPolicyFields
+						bind:value={customFollowUp}
+						previewRecipients={previewTo}
+						mergeFields={firstSendable?.fields ?? {}}
+						fieldHint={fields.filter((f) => f !== "email" && f !== "name").map((f) => `{{${f}}}`).join(", ")}
+					/>
+				{:else if followKind === "default"}
+					<div class="nudge-preview"><small class="muted">Preview</small>{previewNudge(nudgeDefaults.text, previewTo, firstSendable?.fields ?? {})}</div>
+				{/if}
+				{#if followKind !== "off"}<ConnectorNotice />{/if}
+			</fieldset>
+
 			<p class="note small">
 				<Icon name="warning-circle" /> Gmail limits how many emails and recipients you can send per day, and the limits
 				differ by account type. Check Google's limits for
@@ -359,6 +430,39 @@
 </section>
 
 <style>
+	.follow {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin: 0;
+		padding: 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.follow legend {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 4px;
+		font-weight: 500;
+	}
+	.follow p {
+		margin: 0;
+	}
+	.kinds {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px;
+	}
+	.nudge-preview {
+		display: flex;
+		flex-direction: column;
+		white-space: pre-wrap;
+		padding: 8px 10px;
+		border-radius: var(--radius);
+		background: var(--bg-soft);
+		border: 1px dashed var(--border);
+	}
 	.builder {
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
