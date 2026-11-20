@@ -17,3 +17,22 @@ export function relativeTime(at: number, now = Date.now()): string {
 export function plural(n: number, word: string): string {
 	return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
+
+/** Full date and time, e.g. "Nov 20, 2026, 3:04 PM" (timelines). */
+export function dateTime(at: number): string {
+	return new Date(at).toLocaleString(undefined, {
+		dateStyle: "medium",
+		timeStyle: "short",
+	});
+}
+
+/** Weekday, date and time, e.g. "Fri, Nov 20, 3:04 PM" (upcoming sends). */
+export function dayTime(at: number): string {
+	return new Date(at).toLocaleString(undefined, {
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+	});
+}

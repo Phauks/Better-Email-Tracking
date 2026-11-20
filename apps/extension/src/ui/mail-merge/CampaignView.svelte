@@ -183,9 +183,6 @@
 		white-space: nowrap;
 		text-align: right;
 	}
-	.small {
-		font-size: 12px;
-	}
 	.note {
 		display: flex;
 		align-items: center;

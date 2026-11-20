@@ -11,8 +11,8 @@
 		statsLine,
 	} from "../../lib/campaigns";
 	import { relativeTime } from "../../lib/time";
-	import { isConfigured, loadSettings } from "../../settings";
 	import Icon from "../components/Icon.svelte";
+	import ListState from "../components/ListState.svelte";
 	import { pageApi } from "../api";
 	import CampaignBuilder from "./CampaignBuilder.svelte";
 	import CampaignView from "./CampaignView.svelte";
@@ -21,7 +21,6 @@
 	let loading = $state(false);
 	let error = $state("");
 	let notice = $state("");
-	let configured = $state(true);
 	let building = $state(false);
 	let seed = $state<BuilderSeed | undefined>(undefined);
 	let expanded = $state<Record<string, boolean>>({});
@@ -40,10 +39,7 @@
 	}
 
 	onMount(() => {
-		void loadSettings().then((s) => {
-			configured = isConfigured(s);
-			if (configured) void load();
-		});
+		void load();
 		// Live progress while anything is sending.
 		timer = setInterval(() => {
 			if (campaigns.some(isActive)) void load();
@@ -71,37 +67,32 @@
 	}
 </script>
 
-<main>
+<section>
 	<header>
 		<h1><Icon name="paper-plane-tilt" size={22} /> Mail merge</h1>
 		<div class="tools">
-			<a class="btn" href="#messages"><Icon name="envelope-simple-open" /> Tracked emails</a>
 			<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
-			{#if configured && !building}
+			{#if !building}
 				<button class="btn primary" onclick={() => newCampaign()}><Icon name="plus" /> New campaign</button>
 			{/if}
 		</div>
 	</header>
 
-	{#if !configured}
-		<p class="empty">Connect your tracking server in <a href="options.html">settings</a> first.</p>
-	{:else}
-		{#if building}
+	{#if building}
 			{#key seed}
 				<CampaignBuilder {seed} onDone={done} onCancel={() => ((building = false), (seed = undefined))} />
 			{/key}
 		{/if}
 		{#if notice}<p class="note"><Icon name="paper-plane-tilt" /> {notice}</p>{/if}
-		{#if error}
-			<p class="empty bad">{error}</p>
-		{:else if loading && campaigns.length === 0}
-			<p class="empty muted">Loading…</p>
-		{:else if campaigns.length === 0 && !building}
-			<div class="empty">
-				<p class="muted">Send a personalised email to a list from a CSV, with per-recipient open and click tracking.</p>
-				<button class="btn primary" onclick={() => newCampaign()}><Icon name="plus" /> New campaign</button>
-			</div>
-		{:else if campaigns.length > 0}
+	<ListState {loading} {error} isEmpty={campaigns.length === 0}>
+		{#snippet empty()}
+			{#if !building}
+				<div class="empty">
+					<p class="muted">Send a personalised email to a list from a CSV, with per-recipient open and click tracking.</p>
+					<button class="btn primary" onclick={() => newCampaign()}><Icon name="plus" /> New campaign</button>
+				</div>
+			{/if}
+		{/snippet}
 			<ul class="card list">
 				{#each campaigns as c (c.id)}
 					{@const p = progress(c.stats)}
@@ -127,16 +118,10 @@
 					</li>
 				{/each}
 			</ul>
-		{/if}
-	{/if}
-</main>
+	</ListState>
+</section>
 
 <style>
-	main {
-		max-width: 960px;
-		margin: 0 auto;
-		padding: 24px 16px 48px;
-	}
 	header {
 		display: flex;
 		flex-wrap: wrap;
@@ -156,20 +141,6 @@
 		display: flex;
 		gap: 8px;
 		flex-wrap: wrap;
-	}
-	.card {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--bg);
-		margin: 0 0 16px;
-	}
-	ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-	.list > li + li {
-		border-top: 1px solid var(--border);
 	}
 	.row {
 		display: flex;
@@ -221,9 +192,6 @@
 		background: var(--accent);
 		transition: width 0.3s;
 	}
-	.small {
-		font-size: 12px;
-	}
 	.counts,
 	.when {
 		white-space: nowrap;
@@ -239,13 +207,6 @@
 		padding: 8px 12px;
 		border-radius: var(--radius);
 		background: var(--accent-soft);
-	}
-	.empty {
-		padding: 32px 0;
-		text-align: center;
-	}
-	.bad {
-		color: var(--danger);
 	}
 	@media (max-width: 600px) {
 		.counts {

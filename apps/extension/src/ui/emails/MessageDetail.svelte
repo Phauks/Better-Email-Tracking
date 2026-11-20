@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dateTime } from "../../lib/time";
 	import type { MessageDetail } from "@bet/shared";
 	import { onMount } from "svelte";
 	import { deviceLabel, eventIcon, eventSourceLabel, isMachineEvent, shortUrl } from "../../lib/feed";
@@ -20,8 +21,7 @@
 			});
 	});
 
-	const fmt = (at: number) =>
-		new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+	const fmt = dateTime;
 </script>
 
 <div class="detail">
@@ -130,8 +130,5 @@
 		background: var(--bg-hover);
 		color: var(--text-muted);
 		margin-left: 4px;
-	}
-	.bad {
-		color: var(--danger);
 	}
 </style>

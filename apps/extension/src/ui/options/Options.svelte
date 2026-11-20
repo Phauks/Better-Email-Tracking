@@ -13,7 +13,7 @@
 	} from "../../settings";
 	import { ApiClient } from "../../api/client";
 	import Icon from "../components/Icon.svelte";
-	import FollowUpSettings from "./FollowUpSettings.svelte";
+	import FollowUpSettings from "../follow-ups/FollowUpSettings.svelte";
 
 	let s = $state<Settings>(normalizeSettings({}));
 	let domainsText = $state("");

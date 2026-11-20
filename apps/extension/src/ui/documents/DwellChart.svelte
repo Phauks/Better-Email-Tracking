@@ -56,7 +56,4 @@
 		font-size: 10px;
 		fill: var(--text-muted);
 	}
-	.small {
-		font-size: 12px;
-	}
 </style>

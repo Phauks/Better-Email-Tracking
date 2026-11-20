@@ -550,9 +550,6 @@
 	.pad {
 		padding: 0 16px;
 	}
-	.small {
-		font-size: 12px;
-	}
 	footer {
 		display: flex;
 		align-items: center;

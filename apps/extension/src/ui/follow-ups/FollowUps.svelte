@@ -2,10 +2,11 @@
 	import type { NudgeHistoryItem, NudgeSequence, NudgeState } from "@bet/shared";
 	import { onMount } from "svelte";
 	import { NUDGE_STATE_LABEL, nextActionLabel } from "../../lib/nudges";
-	import { relativeTime } from "../../lib/time";
+	import { relativeTime, dayTime } from "../../lib/time";
 	import type { IconName } from "../icons";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
+	import ListState from "../components/ListState.svelte";
 
 	let { onopenmessage }: { onopenmessage: (id: string) => void } = $props();
 
@@ -78,8 +79,7 @@
 		...(Object.keys(NUDGE_STATE_LABEL) as NudgeState[]).map((s) => ({ value: s, label: NUDGE_STATE_LABEL[s] })),
 	];
 
-	const fmt = (at: number) =>
-		new Date(at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+	const fmt = dayTime;
 	const sentCount = (s: NudgeSequence) => s.history.filter((h) => h.kind === "sent").length;
 	const to = (s: NudgeSequence) => s.recipients.map((r) => r.name || r.email).join(", ");
 </script>
@@ -91,17 +91,14 @@
 	<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 </div>
 
-{#if error}<p class="bad">{error}</p>{/if}
-
-{#if loading && sequences.length === 0}
-	<p class="empty muted">Loading…</p>
-{:else if shown.length === 0}
-	<p class="empty muted">
-		{sequences.length === 0
-			? "No follow-ups yet. Turn them on with the alarm button when you write a tracked email."
-			: "No follow-ups match."}
-	</p>
-{:else}
+<ListState
+	{loading}
+	{error}
+	isEmpty={shown.length === 0}
+	empty={sequences.length === 0
+		? "No follow-ups yet. Turn them on with the alarm button when you write a tracked email."
+		: "No follow-ups match."}
+>
 	<ul class="card list">
 		{#each shown as seq (seq.id)}
 			{@const st = STATE_ICON[seq.state]}
@@ -148,7 +145,7 @@
 			</li>
 		{/each}
 	</ul>
-{/if}
+</ListState>
 
 <style>
 	.bar {
@@ -160,19 +157,11 @@
 	select {
 		width: auto;
 	}
-	.card {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--bg);
-	}
 	ul,
 	ol {
 		list-style: none;
 		margin: 0;
 		padding: 0;
-	}
-	.list > li + li {
-		border-top: 1px solid var(--border);
 	}
 	.row {
 		display: flex;
@@ -217,9 +206,6 @@
 		white-space: nowrap;
 		font-weight: 500;
 	}
-	.small {
-		font-size: 12px;
-	}
 	.next,
 	.count {
 		white-space: nowrap;
@@ -247,13 +233,6 @@
 	}
 	.when {
 		margin-left: auto;
-	}
-	.empty {
-		padding: 32px 0;
-		text-align: center;
-	}
-	.bad {
-		color: var(--danger);
 	}
 	@media (max-width: 640px) {
 		.count {

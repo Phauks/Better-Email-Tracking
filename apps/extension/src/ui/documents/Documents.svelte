@@ -4,6 +4,7 @@
 	import { documentIcon, formatDuration } from "../../lib/documents";
 	import { plural, relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
+	import ListState from "../components/ListState.svelte";
 	import { pageApi } from "../api";
 	import DocumentDetail from "./DocumentDetail.svelte";
 
@@ -76,13 +77,7 @@
 		</div>
 	</div>
 
-	{#if error}<p class="bad">{error}</p>{/if}
-
-	{#if loading && documents.length === 0}
-		<p class="empty muted">Loading…</p>
-	{:else if documents.length === 0}
-		<p class="empty muted">No tracked documents yet.</p>
-	{:else}
+	<ListState {loading} {error} isEmpty={documents.length === 0} empty="No tracked documents yet.">
 		<ul class="card list">
 			{#each documents as d (d.id)}
 				<li>
@@ -110,7 +105,7 @@
 				</li>
 			{/each}
 		</ul>
-	{/if}
+	</ListState>
 </section>
 
 <style>
@@ -130,19 +125,6 @@
 	.tools {
 		display: flex;
 		gap: 8px;
-	}
-	.card {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--bg);
-	}
-	ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-	.list > li + li {
-		border-top: 1px solid var(--border);
 	}
 	.row {
 		display: flex;
@@ -177,9 +159,6 @@
 		white-space: nowrap;
 		font-weight: 500;
 	}
-	.small {
-		font-size: 12px;
-	}
 	.counts {
 		white-space: nowrap;
 	}
@@ -187,13 +166,6 @@
 		width: 72px;
 		text-align: right;
 		white-space: nowrap;
-	}
-	.empty {
-		padding: 32px 0;
-		text-align: center;
-	}
-	.bad {
-		color: var(--danger);
 	}
 	@media (max-width: 600px) {
 		.counts {

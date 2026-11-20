@@ -3,7 +3,7 @@
 	import { onMount } from "svelte";
 	import { deviceLabel, SOURCE_LABEL } from "../../lib/feed";
 	import { documentRecipientLabel, formatDuration } from "../../lib/documents";
-	import { relativeTime } from "../../lib/time";
+	import { relativeTime, dateTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
 	import { pageApi } from "../api";
 	import DwellChart from "./DwellChart.svelte";
@@ -58,7 +58,7 @@
 		}
 	}
 
-	const fmt = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+	const fmt = dateTime;
 	const EVENT_LABEL = { view: "Viewed", page: "Read page", download: "Downloaded" } as const;
 	const EVENT_ICON = { view: "eye", page: "clock", download: "download-simple" } as const;
 </script>
@@ -194,12 +194,6 @@
 		background: var(--bg-hover);
 		color: var(--text-muted);
 		margin-left: 4px;
-	}
-	.small {
-		font-size: 12px;
-	}
-	.bad {
-		color: var(--danger);
 	}
 	@media (max-width: 600px) {
 		.detail {
