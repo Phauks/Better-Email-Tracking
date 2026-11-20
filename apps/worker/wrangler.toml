@@ -1,0 +1,27 @@
+name = "better-email-tracking"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bet"
+# Replace with the id printed by `wrangler d1 create bet`.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+SEND_GRACE_SECONDS = "20"
+OWNER_WINDOW_SECONDS = "45"
+RETENTION_DAYS = "180"
+STORE_LOCATION = "false"
+# ALLOWED_ORIGINS = "https://dashboard.example.com"
+
+# Secrets (not in this file): wrangler secret put API_TOKEN / IP_SALT
+
+[triggers]
+crons = ["17 3 * * *"] # daily retention purge
+
+# Serve from your own subdomain instead of *.workers.dev:
+# routes = [
+#   { pattern = "t.yourdomain.com", custom_domain = true }
+# ]
