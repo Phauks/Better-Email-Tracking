@@ -26,6 +26,13 @@ export function sourceIcon(source: EventSource): IconName {
 	}
 }
 
+/** Timeline/feed icon: clicks and document views by type, opens by source. */
+export function eventIcon(e: Pick<TrackingEvent, "type" | "source">): IconName {
+	if (e.type === "click") return "cursor-click";
+	if (e.type === "doc_view") return "file-text";
+	return sourceIcon(e.source);
+}
+
 export function isMachineEvent(e: Pick<TrackingEvent, "source">): boolean {
 	return !isLikelyHuman(e.source);
 }
@@ -44,9 +51,16 @@ export function describeEvent(e: {
 	subject: string;
 	recipients: Recipient[];
 	linkUrl?: string;
+	documentName?: string;
 }): { title: string; detail: string } {
 	const who = recipientLabel(e.recipients);
 	const subject = e.subject.trim() || "(no subject)";
+	if (e.type === "doc_view") {
+		return {
+			title: `${who} viewed ${e.documentName ? `“${e.documentName}”` : "your document"}`,
+			detail: subject,
+		};
+	}
 	if (e.type === "click") {
 		return {
 			title: `${who} clicked a link`,

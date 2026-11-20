@@ -47,6 +47,8 @@ export interface ComposeSession {
 	getSubject(): string;
 	getBodyHtml(): string;
 	setBodyHtml(html: string): void;
+	/** Inserts HTML at the caret. Optional: callers fall back to appending. */
+	insertHtmlAtCursor?(html: string): void;
 	/** true/false when known; undefined when the provider can't tell. */
 	hasAttachments(): boolean | undefined;
 	addToolbarControl(opts: ToolbarControlOptions): ToolbarControl;

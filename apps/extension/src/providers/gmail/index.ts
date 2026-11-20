@@ -86,6 +86,9 @@ class GmailComposeSession implements ComposeSession {
 	setBodyHtml(html: string): void {
 		this.view.setBodyHTML(html);
 	}
+	insertHtmlAtCursor(html: string): void {
+		this.view.insertHTMLIntoBodyAtCursor(html);
+	}
 	hasAttachments(): boolean | undefined {
 		try {
 			return detectGmailAttachments(

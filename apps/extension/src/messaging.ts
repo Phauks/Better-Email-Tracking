@@ -2,6 +2,7 @@ import type {
 	MarkSentRequest,
 	RegisterMessageRequest,
 	ThreadStatusResponse,
+	UploadDocumentResponse,
 } from "@bet/shared";
 
 /**
@@ -14,6 +15,8 @@ export type BgRequest =
 	| { type: "bet:markSent"; id: string; req: MarkSentRequest }
 	| { type: "bet:threadStatus"; threadIds: string[] }
 	| { type: "bet:ownerViews"; messageIds: string[] }
+	/** File bytes as base64: runtime messages are JSON, so ArrayBuffers can't cross. */
+	| { type: "bet:docUpload"; name: string; mime: string; dataBase64: string }
 	| { type: "bet:pollNow" }
 	| { type: "bet:markSeen" };
 
@@ -22,6 +25,7 @@ export interface BgResponseMap {
 	"bet:markSent": null;
 	"bet:threadStatus": ThreadStatusResponse;
 	"bet:ownerViews": null;
+	"bet:docUpload": UploadDocumentResponse;
 	"bet:pollNow": null;
 	"bet:markSeen": null;
 }

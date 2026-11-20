@@ -2,6 +2,7 @@
 import "@inboxsdk/core/background.js";
 import { listenForBgRequests } from "../messaging";
 import { loadSettings } from "../settings";
+import { documentHandlers } from "./documents";
 import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
 
 const POLL_ALARM = "bet-poll-feed";
@@ -43,6 +44,7 @@ const api = async () => apiFromSettings(await loadSettings());
 listenForBgRequests({
 	"bet:register": async ({ req }) => {
 		await (await api()).registerMessage(req);
+		await documentHandlers.afterRegister(req);
 		return null;
 	},
 	"bet:markSent": async ({ id, req }) => {
@@ -57,6 +59,7 @@ listenForBgRequests({
 		await (await api()).ownerViews({ messageIds });
 		return null;
 	},
+	"bet:docUpload": documentHandlers.upload,
 	"bet:pollNow": async () => {
 		await pollFeed();
 		return null;
