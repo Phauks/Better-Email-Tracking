@@ -25,7 +25,12 @@ export function createManifest({ version }) {
 		// scripting: InboxSDK's background injects pageWorld.js into Gmail's main world.
 		permissions: ["storage", "alarms", "notifications", "scripting"],
 		host_permissions: ["https://mail.google.com/*"],
-		optional_host_permissions: ["https://*/*"],
+		// Your Worker's origin is requested at runtime; localhost is for `pnpm dev`.
+		optional_host_permissions: [
+			"https://*/*",
+			"http://localhost/*",
+			"http://127.0.0.1/*",
+		],
 		content_scripts: [
 			{
 				matches: ["https://mail.google.com/*"],

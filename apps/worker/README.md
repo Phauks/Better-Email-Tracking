@@ -22,6 +22,17 @@ authenticated `/api/*` used by the extension.
 - `src/lib/`: shared helpers (`parse.ts` request parsing, `d1.ts` query helpers, auth, CORS, hashing, crypto)
 - `migrations/`: D1 schema
 
+## Local development
+
+```sh
+cp .dev.vars.example .dev.vars        # API_TOKEN and IP_SALT for wrangler dev
+pnpm db:migrate:local                 # from the repo root
+pnpm dev:worker                       # http://localhost:8787 (or `pnpm dev` for both apps)
+```
+
+Tests run against in-memory stores (`src/test-utils.ts`), no wrangler needed:
+`pnpm vitest run apps/worker`.
+
 ## Setup and deploy
 
 ```sh

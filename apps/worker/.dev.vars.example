@@ -1,0 +1,8 @@
+# Copy to .dev.vars for `pnpm dev` (wrangler dev). Never commit .dev.vars.
+API_TOKEN=dev-token-change-me
+IP_SALT=dev-salt
+# Follow-up nudges (optional): a Google OAuth client with redirect
+# http://localhost:8787/oauth/google/callback
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# TOKEN_ENC_KEY=

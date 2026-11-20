@@ -3,6 +3,7 @@
 	import { INDIVIDUAL_TOOLTIP } from "../../lib/copy";
 	import {
 		type DefaultMode,
+		isValidWorkerUrl,
 		loadSettings,
 		normalizeDomains,
 		normalizeSettings,
@@ -41,8 +42,8 @@
 		saved = "";
 		saveError = "";
 		const workerUrl = normalizeWorkerUrl(s.workerUrl);
-		if (workerUrl && !/^https:\/\//.test(workerUrl)) {
-			saveError = "The tracker URL must start with https://";
+		if (workerUrl && !isValidWorkerUrl(workerUrl)) {
+			saveError = "The tracker URL must start with https:// (or http://localhost for local development)";
 			return;
 		}
 		const permission = workerUrl ? requestHostPermission(workerUrl) : Promise.resolve(true);

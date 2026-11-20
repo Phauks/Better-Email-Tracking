@@ -17,7 +17,8 @@ Vite, [InboxSDK](https://www.inboxsdk.com/) for Gmail, and
 4. The options page opens on install. Enter your Worker URL (for example
    `https://track.example.com`) and API token, then click **Save**. Chrome asks for
    access to that host. Click **Test connection** to check `/api/health` and an
-   authenticated endpoint.
+   authenticated endpoint. For local development, `http://localhost:8787` (from
+   `pnpm dev`) is accepted too.
 
 `node scripts/icons.mjs` regenerates `public/icons/*.png` from the Phosphor
 `envelope-simple-open` glyph. It uses Playwright and Chromium.
@@ -150,27 +151,33 @@ The compose tooltip and the options page both explain this.
 src/
   providers/        mail-client adapters (the only code that may import InboxSDK)
     types.ts        MailClientAdapter / ComposeSession / ListRow / MessageViewInfo
-    registry.ts     picks an adapter by location.hostname
+    catalog.ts      provider names and labels, safe for extension pages (no SDKs)
+    registry.ts     picks an adapter by location.hostname (lazy-loads it)
     gmail/          InboxSDK implementation
   features/         content-script modules: { id, setup(ctx) }, listed in features/index.ts
     compose-tracking/  individual-send/  own-open/  sent-status/
     documents/  mail-merge/  follow-up/
+                    a feature's background messages live in its messages.ts
     send-copy.ts    per-copy send pipeline shared by individual-send and mail-merge
     sent-events.ts  hub: tracked sends (with thread ids) for features like follow-up
   content/          content-script entry; builds the FeatureContext
-  background/       service worker: API proxy, feed polling, notifications, badge
-  messaging.ts      typed content -> background message union
-  api/client.ts     typed Worker client (background and extension pages)
-  api/documents.ts  DocumentsClient: upload, list, detail, preview, delete
+  background/       service worker: API proxy (one handler map per feature), feed
+                    polling, notifications, badge, mail merge tab wake-ups
+  messaging.ts      typed content -> background message union (core + features)
+  api/client.ts     typed Worker client, one section per module (background and pages)
   settings.ts       typed chrome.storage.sync settings with defaults
-  lib/              pure, unit-tested logic (status badges, feed text, grouping, domains)
-  ui/               Svelte 5 pages (popup, options, dashboard), icons.ts, Icon.svelte
-    documents/      dashboard Documents tab, detail and dwell chart
-    mail-merge/     dashboard Mail merge view (builder, campaign list and detail)
+  lib/              pure, unit-tested logic (status badges, feed text, grouping,
+                    domains, time formats, typed runtime channels)
+  ui/               Svelte 5 pages and views
+    popup/  options/  dashboard/   pages; dashboard/ is only the tab shell
+    emails/  documents/  mail-merge/  follow-ups/   one folder per dashboard view
+    components/     Icon, StatusIcon, ListState (loading/error/empty), NotConfigured
+    icons.ts        the single Phosphor icon registry
 ```
 
 Content scripts never call the Worker directly. They send typed messages
 (`src/messaging.ts`) to the background, which holds the token and the host permission.
+Extension pages call the Worker directly with `pageApi()` from `src/ui/api.ts`.
 
 ### Adding a feature
 
@@ -192,8 +199,9 @@ feature order. A hook returns `"continue"`, `"handled"` (it took over the send) 
    You need compose sessions with a before-send hook that can cancel and resume the
    send, `openCompose`, list rows and message views. If something isn't available,
    make it a no-op or return `undefined` (for example, `hasAttachments`).
-2. Add an entry to `PROVIDERS` in `src/providers/registry.ts`. It is loaded with a
-   dynamic import.
+2. Describe it in `src/providers/catalog.ts` (name, label, host match) and add an
+   entry to `PROVIDERS` in `src/providers/registry.ts`. It is loaded with a dynamic
+   import.
 3. Add the provider's host to `host_permissions` and to `content_scripts.matches` in
    `scripts/manifest.mjs`.
 
@@ -201,11 +209,11 @@ No feature code needs to change.
 
 ## Testing
 
-- Unit tests, from the repo root: `npx vitest run apps/extension`. They cover split
+- Unit tests, from the repo root: `pnpm vitest run apps/extension`. They cover split
   planning, never-track domains, badge mapping, feed text, settings defaults, the
   status cache, dashboard grouping, follow-up policies and template rendering, and the
   mail merge queue (throttle scheduling, per-run cap, resume after reload, lease,
-  failures) and campaign helpers.
+  failures), campaign helpers and the Worker client.
 - Type check: `pnpm --filter @bet/extension typecheck`.
 - The popup, options and dashboard pages were smoke-tested in Chromium against a
   mocked Worker.

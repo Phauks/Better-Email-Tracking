@@ -27,11 +27,14 @@ Both apps are modular: Worker features register in `apps/worker/src/modules.ts`,
 
 ```sh
 pnpm install
-pnpm test        # vitest
-pnpm typecheck
-pnpm lint        # biome
+cp apps/worker/.dev.vars.example apps/worker/.dev.vars
+pnpm db:migrate:local   # local D1 schema
+pnpm dev                # wrangler dev on :8787 + extension build in watch mode
+pnpm check              # lint (biome) + typecheck + tests (vitest)
 pnpm build
 ```
+
+Load `apps/extension/dist` unpacked in Chrome and set the tracker URL to `http://localhost:8787` with the token from `.dev.vars` (plain HTTP is accepted for localhost only; recipients can't reach it, so use it for testing). [ARCHITECTURE.md](ARCHITECTURE.md) explains the module system, how to add a feature, and how to add a mail provider.
 
 Icons: [Phosphor](https://phosphoricons.com/) (MIT) via `@phosphor-icons/core`.
 

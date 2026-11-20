@@ -72,8 +72,19 @@ export function normalizeDomains(list: string[]): string[] {
 	return [...out];
 }
 
+/**
+ * HTTPS, or plain HTTP to this machine for local development (`pnpm dev` serves the
+ * Worker on http://localhost:8787; recipients can't reach it, so it's for testing only).
+ */
+export function isValidWorkerUrl(url: string): boolean {
+	return (
+		/^https:\/\//.test(url) ||
+		/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url)
+	);
+}
+
 export function isConfigured(s: Settings): boolean {
-	return /^https:\/\//.test(s.workerUrl) && s.apiToken.length > 0;
+	return isValidWorkerUrl(s.workerUrl) && s.apiToken.length > 0;
 }
 
 /** Origin pattern used for the optional host permission. */
