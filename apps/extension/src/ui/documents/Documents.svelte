@@ -5,27 +5,22 @@
 	import { plural, relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
 	import ListState from "../components/ListState.svelte";
+	import LoadMore from "../components/LoadMore.svelte";
 	import { pageApi } from "../api";
+	import { pageFrom } from "../../lib/paging";
+	import { PagedList } from "../paged.svelte";
 	import DocumentDetail from "./DocumentDetail.svelte";
 
-	let documents = $state<DocumentSummary[]>([]);
-	let loading = $state(false);
 	let uploading = $state("");
-	let error = $state("");
+	let uploadError = $state("");
 	let expanded = $state<string | null>(null);
 	let fileInput = $state<HTMLInputElement>();
 
-	async function load() {
-		loading = true;
-		error = "";
-		try {
-			documents = (await (await pageApi()).listDocuments()).documents;
-		} catch (err) {
-			error = (err as Error).message;
-		} finally {
-			loading = false;
-		}
-	}
+	const list = new PagedList<DocumentSummary>(
+		async (cursor) => pageFrom(await (await pageApi()).listDocuments(cursor ? { cursor } : {}), "documents"),
+		(d) => d.id,
+	);
+	const load = () => list.reload();
 
 	async function onFile(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
@@ -33,17 +28,17 @@
 		input.value = "";
 		if (!file) return;
 		if (file.size > DEFAULT_MAX_DOCUMENT_BYTES) {
-			error = `${file.name} is ${formatBytes(file.size)}; the limit is ${formatBytes(DEFAULT_MAX_DOCUMENT_BYTES)}.`;
+			uploadError = `${file.name} is ${formatBytes(file.size)}; the limit is ${formatBytes(DEFAULT_MAX_DOCUMENT_BYTES)}.`;
 			return;
 		}
 		uploading = file.name;
-		error = "";
+		uploadError = "";
 		try {
 			const doc = await (await pageApi()).uploadDocument(file.name, file.type, file);
 			await load();
 			expanded = doc.id;
 		} catch (err) {
-			error = (err as Error).message;
+			uploadError = (err as Error).message;
 		} finally {
 			uploading = "";
 		}
@@ -73,13 +68,13 @@
 				<Icon name="upload-simple" size={14} />
 				{uploading ? `Uploading ${uploading}…` : "Upload"}
 			</button>
-			<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
+			<button class="btn" onclick={load} disabled={list.loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 		</div>
 	</div>
 
-	<ListState {loading} {error} isEmpty={documents.length === 0} empty="No tracked documents yet.">
+	<ListState loading={list.loading} error={uploadError || list.error} isEmpty={list.items.length === 0} empty="No tracked documents yet.">
 		<ul class="card list">
-			{#each documents as d (d.id)}
+			{#each list.items as d (d.id)}
 				<li>
 					<button class="row" onclick={() => (expanded = expanded === d.id ? null : d.id)} aria-expanded={expanded === d.id}>
 						<Icon name={expanded === d.id ? "caret-down" : "caret-right"} size={14} />
@@ -98,13 +93,14 @@
 							id={d.id}
 							ondeleted={() => {
 								expanded = null;
-								documents = documents.filter((x) => x.id !== d.id);
+								list.remove(d.id);
 							}}
 						/>
 					{/if}
 				</li>
 			{/each}
 		</ul>
+		<LoadMore {list} />
 	</ListState>
 </section>
 

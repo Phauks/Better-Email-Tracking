@@ -3,6 +3,8 @@ import {
 	type AttachDocumentsRequest,
 	CAMPAIGN_API,
 	type CampaignDetail,
+	type CampaignFollowUpAction,
+	type CampaignFollowUpActionResponse,
 	type CampaignLeaseRequest,
 	type CampaignStatus,
 	type ConnectorKind,
@@ -13,15 +15,20 @@ import {
 	type DocumentDetail,
 	type FeedResponse,
 	type ListCampaignsResponse,
+	type ListDocumentRecipientsResponse,
 	type ListDocumentsResponse,
+	type ListMessagesQuery,
 	type ListMessagesResponse,
+	type ListNudgesQuery,
 	type ListNudgesResponse,
+	type ListRecipientsResponse,
 	type MarkSentRequest,
 	type MessageDetail,
 	NUDGE_API,
 	type NudgeResponse,
-	type NudgeState,
 	type OwnerViewRequest,
+	type PageQuery,
+	type RecipientQuery,
 	type RecipientResultRequest,
 	type RecipientResultResponse,
 	type RegisterMessageRequest,
@@ -124,10 +131,11 @@ export class ApiClient {
 	markSent(id: string, req: MarkSentRequest): Promise<void> {
 		return this.request("POST", API.sent(id), req);
 	}
+	/** Emails only (nudges are never listed), newest first; pass nextCursor back as cursor. */
 	listMessages(
-		opts: { q?: string; limit?: number } = {},
+		opts: ListMessagesQuery & PageQuery = {},
 	): Promise<ListMessagesResponse> {
-		return this.request("GET", `${API.messages}${query(opts)}`);
+		return this.request("GET", `${API.messages}${query({ ...opts })}`);
 	}
 	getMessage(id: string): Promise<MessageDetail> {
 		return this.request("GET", API.message(id));
@@ -145,11 +153,27 @@ export class ApiClient {
 
 	// Tracked documents
 
-	listDocuments(): Promise<ListDocumentsResponse> {
-		return this.request("GET", DOCUMENT_API.documents);
+	listDocuments(opts: PageQuery = {}): Promise<ListDocumentsResponse> {
+		return this.request(
+			"GET",
+			`${DOCUMENT_API.documents}${query({ ...opts })}`,
+		);
 	}
-	getDocument(id: string): Promise<DocumentDetail> {
-		return this.request("GET", DOCUMENT_API.document(id));
+	/** Detail with the first page of per-recipient rows. */
+	getDocument(id: string, opts: PageQuery = {}): Promise<DocumentDetail> {
+		return this.request(
+			"GET",
+			`${DOCUMENT_API.document(id)}${query({ ...opts })}`,
+		);
+	}
+	listDocumentRecipients(
+		id: string,
+		opts: PageQuery = {},
+	): Promise<ListDocumentRecipientsResponse> {
+		return this.request(
+			"GET",
+			`${DOCUMENT_API.recipients(id)}${query({ ...opts })}`,
+		);
 	}
 	deleteDocument(id: string): Promise<void> {
 		return this.request("DELETE", DOCUMENT_API.document(id));
@@ -177,12 +201,35 @@ export class ApiClient {
 	// Mail merge campaigns
 
 	listCampaigns(
-		opts: { status?: CampaignStatus; limit?: number } = {},
+		opts: { status?: CampaignStatus } & PageQuery = {},
 	): Promise<ListCampaignsResponse> {
-		return this.request("GET", `${CAMPAIGN_API.campaigns}${query(opts)}`);
+		return this.request(
+			"GET",
+			`${CAMPAIGN_API.campaigns}${query({ ...opts })}`,
+		);
 	}
-	getCampaign(id: string): Promise<CampaignDetail> {
-		return this.request("GET", CAMPAIGN_API.campaign(id));
+	/** Detail with the first page of recipients matching `opts`. */
+	getCampaign(id: string, opts: RecipientQuery = {}): Promise<CampaignDetail> {
+		return this.request(
+			"GET",
+			`${CAMPAIGN_API.campaign(id)}${recipientQuery(opts)}`,
+		);
+	}
+	listCampaignRecipients(
+		id: string,
+		opts: RecipientQuery = {},
+	): Promise<ListRecipientsResponse> {
+		return this.request(
+			"GET",
+			`${CAMPAIGN_API.recipients(id)}${recipientQuery(opts)}`,
+		);
+	}
+	/** Pause, resume or cancel every follow-up of a campaign. */
+	campaignFollowUps(
+		id: string,
+		action: CampaignFollowUpAction,
+	): Promise<CampaignFollowUpActionResponse> {
+		return this.request("POST", CAMPAIGN_API.followUps(id), { action });
 	}
 	createCampaign(req: CreateCampaignRequest): Promise<CampaignDetail> {
 		return this.request("POST", CAMPAIGN_API.campaigns, req);
@@ -231,9 +278,9 @@ export class ApiClient {
 		return this.request("POST", NUDGE_API.nudges, req);
 	}
 	listNudges(
-		opts: { state?: NudgeState; messageId?: string; limit?: number } = {},
+		opts: ListNudgesQuery & PageQuery = {},
 	): Promise<ListNudgesResponse> {
-		return this.request("GET", `${NUDGE_API.nudges}${query(opts)}`);
+		return this.request("GET", `${NUDGE_API.nudges}${query({ ...opts })}`);
 	}
 	updateNudge(id: string, req: UpdateNudgeRequest): Promise<NudgeResponse> {
 		return this.request("PATCH", NUDGE_API.nudge(id), req);
@@ -279,6 +326,14 @@ async function errorFrom(
 		res.status,
 		code,
 	);
+}
+
+function recipientQuery(q: RecipientQuery): string {
+	const { state, ...rest } = q;
+	return query({
+		...rest,
+		...(state?.length ? { state: state.join(",") } : {}),
+	});
 }
 
 function query(params: Record<string, string | number | undefined>): string {

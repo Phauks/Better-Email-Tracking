@@ -1,12 +1,14 @@
 import {
+	type CampaignFollowUpPolicy,
 	type CreateNudgeRequest,
 	escapeHtml,
 	NUDGE_LIMITS,
 	type NudgePolicy,
 	type NudgeSequence,
 	type NudgeState,
+	nudgeFields,
 	type Recipient,
-	renderNudgeTemplate,
+	renderTemplate,
 	type SendWindow,
 	stepsFromPolicy,
 } from "@bet/shared";
@@ -150,9 +152,17 @@ export function textToHtml(text: string): string {
 		.join("");
 }
 
-/** Plain-text preview of a nudge for one recipient (popover and options page). */
-export function previewNudge(text: string, recipients: Recipient[]): string {
-	return renderNudgeTemplate(text, recipients, { html: false });
+/**
+ * Plain-text preview of a nudge (popover, options page, campaign builder), with the
+ * same engine and fields the Worker uses when it sends: firstName, name, email, and
+ * a mail merge copy's merge fields.
+ */
+export function previewNudge(
+	text: string,
+	recipients: Recipient[],
+	mergeFields: Record<string, string> = {},
+): string {
+	return renderTemplate(text, nudgeFields(recipients, mergeFields)).output;
 }
 
 export function sendWindowFor(
@@ -220,10 +230,28 @@ export function nextActionLabel(
 	return `Nudge ${seq.nextStep + 1} of ${seq.steps.length} · ${fmt(seq.nextAt)}`;
 }
 
-/** Tracked-message ids of the nudges themselves (hidden from the email list). */
-export function nudgeMessageIds(sequences: NudgeSequence[]): Set<string> {
-	const ids = new Set<string>();
-	for (const s of sequences)
-		for (const h of s.history) if (h.nudgeMessageId) ids.add(h.nudgeMessageId);
-	return ids;
+/** A campaign's follow-up policy from the builder's choice (null = off). */
+export function campaignFollowUp(
+	resolved: ResolvedFollowUp | null,
+	sendWindow?: SendWindow,
+): CampaignFollowUpPolicy | undefined {
+	if (!resolved) return undefined;
+	const policy: CampaignFollowUpPolicy = {
+		steps: stepsFromPolicy(resolved.policy, textToHtml(resolved.text)),
+		stopOnOpen: resolved.stopOnOpen,
+	};
+	if (sendWindow) policy.sendWindow = sendWindow;
+	return policy;
+}
+
+/** "2 of 3 sent · next Tue 9:00" for a recipient's follow-up in a campaign. */
+export function recipientFollowUpLabel(
+	f: { state: NudgeState; sent: number; steps: number; nextAt?: number },
+	fmt: (at: number) => string,
+): string {
+	const sent = `${f.sent} of ${f.steps} sent`;
+	if (f.state === "active")
+		return f.nextAt !== undefined ? `${sent} · next ${fmt(f.nextAt)}` : sent;
+	if (f.state === "paused") return `Paused · ${sent}`;
+	return `${NUDGE_STATE_LABEL[f.state]} · ${sent}`;
 }

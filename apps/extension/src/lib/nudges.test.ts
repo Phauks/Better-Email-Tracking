@@ -1,16 +1,17 @@
 import type { NudgeSequence } from "@bet/shared";
-import { renderNudgeTemplate } from "@bet/shared";
+import { nudgeFields, renderTemplate } from "@bet/shared";
 import { describe, expect, it } from "vitest";
 import { normalizeSettings } from "../settings";
 import { describeEvent, eventIcon } from "./feed";
 import {
 	buildNudgeRequest,
+	campaignFollowUp,
 	DEFAULT_NUDGES,
 	describePolicy,
 	nextActionLabel,
 	normalizeNudgeDefaults,
-	nudgeMessageIds,
 	previewNudge,
+	recipientFollowUpLabel,
 	resolveChoice,
 	sendWindowFor,
 	textToHtml,
@@ -115,19 +116,23 @@ describe("follow-up policy", () => {
 });
 
 describe("nudge templates", () => {
+	/** How the Worker renders a step built by textToHtml. */
+	const send = (html: string, r: { email: string; name?: string }[]) =>
+		renderTemplate(html, nudgeFields(r), { html: true, escapeFallbacks: false })
+			.output;
+
 	it("escapes text and fills placeholders per recipient", () => {
 		expect(textToHtml("a < b & c")).toBe("<p>a &lt; b &amp; c</p>");
 		const html = textToHtml("Hi {{firstName|there}} & co");
-		expect(
-			renderNudgeTemplate(html, [{ email: "a@x.com", name: "José <Pepe>" }]),
-		).toBe("<p>Hi José &amp; co</p>");
-		expect(
-			renderNudgeTemplate("{{name}}", [
-				{ email: "a@x.com", name: "José <Pepe>" },
-			]),
-		).toBe("José &lt;Pepe&gt;");
-		expect(renderNudgeTemplate(html, [{ email: "a@x.com" }])).toBe(
-			"<p>Hi there &amp; co</p>",
+		expect(send(html, [{ email: "a@x.com", name: "José <Pepe>" }])).toBe(
+			"<p>Hi José &amp; co</p>",
+		);
+		expect(send("{{name}}", [{ email: "a@x.com", name: "José <Pepe>" }])).toBe(
+			"José &lt;Pepe&gt;",
+		);
+		expect(send(html, [{ email: "a@x.com" }])).toBe("<p>Hi there &amp; co</p>");
+		expect(send(textToHtml("{{firstName|Tom & Jerry}}"), [])).toBe(
+			"<p>Tom &amp; Jerry</p>",
 		);
 		expect(
 			previewNudge("Hi {{firstName|there}}, {{email}}", [
@@ -135,6 +140,28 @@ describe("nudge templates", () => {
 			]),
 		).toBe("Hi Bo, b@x.com");
 		expect(previewNudge("Hi {{name|all}}", [])).toBe("Hi all");
+		expect(
+			previewNudge(
+				"Hi {{firstName}} at {{company|your company}}",
+				[{ email: "a@x.com", name: "Ada Lovelace" }],
+				{ company: "Engines" },
+			),
+		).toBe("Hi Ada at Engines");
+	});
+
+	it("builds a campaign's follow-up policy", () => {
+		const resolved = resolveChoice({ kind: "default" }, defaults);
+		const policy = campaignFollowUp(resolved, {
+			startHour: 9,
+			endHour: 17,
+		});
+		expect(policy?.steps).toHaveLength(defaults.maxNudges);
+		expect(policy?.steps[0]?.afterDays).toBe(defaults.firstAfterDays);
+		expect(policy?.steps[0]?.html).toBe(textToHtml(defaults.text));
+		expect(policy?.sendWindow).toEqual({ startHour: 9, endHour: 17 });
+		expect(campaignFollowUp(resolveChoice({ kind: "off" }, defaults))).toBe(
+			undefined,
+		);
 	});
 });
 
@@ -172,16 +199,19 @@ describe("follow-ups in the UI", () => {
 		expect(nextActionLabel(seq({ state: "replied" }), fmt)).toBe("Replied");
 	});
 
-	it("collects nudge message ids", () => {
-		const ids = nudgeMessageIds([
-			seq({
-				history: [
-					{ at: 1, kind: "created" },
-					{ at: 2, kind: "sent", step: 0, nudgeMessageId: "n1" },
-				],
-			}),
-		]);
-		expect([...ids]).toEqual(["n1"]);
+	it("labels a campaign recipient's follow-up", () => {
+		expect(
+			recipientFollowUpLabel(
+				{ state: "active", sent: 1, steps: 3, nextAt: 7 },
+				fmt,
+			),
+		).toBe("1 of 3 sent · next @7");
+		expect(
+			recipientFollowUpLabel({ state: "replied", sent: 2, steps: 3 }, fmt),
+		).toBe("Replied · 2 of 3 sent");
+		expect(
+			recipientFollowUpLabel({ state: "paused", sent: 0, steps: 3 }, fmt),
+		).toBe("Paused · 0 of 3 sent");
 	});
 
 	it("describes nudge and reply events", () => {

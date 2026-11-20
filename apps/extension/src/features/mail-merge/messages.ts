@@ -3,6 +3,7 @@ import type {
 	CampaignLeaseRequest,
 	CampaignStatus,
 	ListCampaignsResponse,
+	RecipientQuery,
 	RecipientResultRequest,
 	UpdateCampaignRequest,
 } from "@bet/shared";
@@ -16,7 +17,7 @@ import { createChannel } from "../../lib/channel";
  */
 export type MergeRequest =
 	| { type: "bet-merge:list"; status?: CampaignStatus }
-	| { type: "bet-merge:get"; id: string }
+	| { type: "bet-merge:get"; id: string; query?: RecipientQuery }
 	| { type: "bet-merge:lease"; id: string; req: CampaignLeaseRequest }
 	| {
 			type: "bet-merge:result";

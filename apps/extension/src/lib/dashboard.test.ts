@@ -1,6 +1,6 @@
 import type { MessageSummary } from "@bet/shared";
 import { describe, expect, it } from "vitest";
-import { filterEntries, groupMessages } from "./dashboard";
+import { groupMessages } from "./dashboard";
 
 const msg = (
 	id: string,
@@ -30,15 +30,5 @@ describe("dashboard grouping", () => {
 		const g = entries[0];
 		expect(g?.kind === "group" && g.messages.length).toBe(2);
 		expect(g?.status).toBe("opened");
-	});
-	it("filters by status, matching any copy in a group", () => {
-		expect(filterEntries(entries, "unopened").map((e) => e.key)).toEqual([
-			"g:g",
-			"a",
-		]);
-		expect(filterEntries(entries, "machine_only").map((e) => e.key)).toEqual([
-			"d",
-		]);
-		expect(filterEntries(entries, "all")).toHaveLength(3);
 	});
 });

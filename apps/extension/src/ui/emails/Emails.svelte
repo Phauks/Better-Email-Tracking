@@ -1,13 +1,15 @@
 <script lang="ts">
 	import type { MessageSummary } from "@bet/shared";
 	import { onMount } from "svelte";
-	import { filterEntries, groupMessages, messageStatus, type StatusFilter } from "../../lib/dashboard";
-	import { nudgeMessageIds } from "../../lib/nudges";
+	import { groupMessages, messageStatus, type StatusFilter } from "../../lib/dashboard";
+	import { pageFrom } from "../../lib/paging";
 	import { plural, relativeTime } from "../../lib/time";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 	import ListState from "../components/ListState.svelte";
+	import LoadMore from "../components/LoadMore.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
+	import { PagedList } from "../paged.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
 
 	/** A message to open on load (from #message=…, e.g. a notification or a follow-up). */
@@ -15,33 +17,24 @@
 
 	let query = $state("");
 	let filter = $state<StatusFilter>("all");
-	let messages = $state<MessageSummary[]>([]);
-	let loading = $state(false);
-	let error = $state("");
 	let expanded = $state<Record<string, boolean>>({});
 
-	const entries = $derived(filterEntries(groupMessages(messages), filter));
-
-	async function load() {
-		loading = true;
-		error = "";
-		try {
-			const api = await pageApi();
-			// Nudges are tracked messages too; they show under Follow-ups, not as emails.
-			const [list, hidden] = await Promise.all([
-				api.listMessages({ q: query.trim(), limit: 200 }),
-				api.listNudges({ limit: 500 }).then(
-					(r) => nudgeMessageIds(r.sequences),
-					() => new Set<string>(),
-				),
-			]);
-			messages = list.messages.filter((m) => !hidden.has(m.id));
-		} catch (err) {
-			error = (err as Error).message;
-		} finally {
-			loading = false;
-		}
-	}
+	// Search and the status filter run on the Worker, so every page is filtered (and
+	// nudges are never listed: they show under Follow-ups).
+	const list = new PagedList<MessageSummary>(
+		async (cursor) =>
+			pageFrom(
+				await (await pageApi()).listMessages({
+					q: query.trim(),
+					...(filter !== "all" ? { status: filter } : {}),
+					...(cursor ? { cursor } : {}),
+				}),
+				"messages",
+			),
+		(m) => m.id,
+	);
+	const entries = $derived(groupMessages(list.items));
+	const load = () => list.reload();
 
 	let debounce: ReturnType<typeof setTimeout> | undefined;
 	function onSearch() {
@@ -104,20 +97,20 @@
 				<Icon name="magnifying-glass" />
 				<input class="input" type="search" placeholder="Search subject or recipient" bind:value={query} oninput={onSearch} />
 			</label>
-			<select class="input" bind:value={filter} aria-label="Filter by status">
+			<select class="input" bind:value={filter} onchange={load} aria-label="Filter by status">
 				{#each filters as f (f.value)}<option value={f.value}>{f.label}</option>{/each}
 			</select>
-			<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
+			<button class="btn" onclick={load} disabled={list.loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 		</div>
 	</header>
 
-	{#if focusId && !messages.some((m) => m.id === focusId) && !loading}
+	{#if focusId && list.loaded && !list.items.some((m) => m.id === focusId)}
 		<section class="card linked">
 			<h2 class="small muted">Linked message</h2>
 			<MessageDetail id={focusId} />
 		</section>
 	{/if}
-	<ListState {loading} {error} isEmpty={entries.length === 0} empty="No tracked emails match.">
+	<ListState loading={list.loading} error={list.error} isEmpty={entries.length === 0} empty="No tracked emails match.">
 			<ul class="card list">
 				{#each entries as entry (entry.key)}
 					{#if entry.kind === "single"}
@@ -147,6 +140,7 @@
 					{/if}
 				{/each}
 			</ul>
+			<LoadMore {list} />
 	</ListState>
 </section>
 

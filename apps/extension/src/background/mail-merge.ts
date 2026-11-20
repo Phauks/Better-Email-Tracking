@@ -41,7 +41,8 @@ export function startMailMergeBackground(): void {
 	listenForMergeRequests({
 		"bet-merge:list": async ({ status }) =>
 			(await api()).listCampaigns(status ? { status } : {}),
-		"bet-merge:get": async ({ id }) => (await api()).getCampaign(id),
+		"bet-merge:get": async ({ id, query }) =>
+			(await api()).getCampaign(id, query),
 		"bet-merge:lease": async ({ id, req }) =>
 			(await api()).leaseCampaign(id, req),
 		"bet-merge:result": async ({ id, email, req }) =>

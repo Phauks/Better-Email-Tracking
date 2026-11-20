@@ -2,6 +2,7 @@ import {
 	type CampaignDetail,
 	type CampaignLeaseRequest,
 	type CampaignRecipient,
+	type RecipientQuery,
 	type RecipientResultRequest,
 	type RenderedMessage,
 	renderMessage,
@@ -19,7 +20,8 @@ import {
 
 /** The Worker calls the runner needs (proxied through the background in production). */
 export interface RunnerApi {
-	get(id: string): Promise<CampaignDetail>;
+	/** The campaign with the first page of recipients matching `query`. */
+	get(id: string, query?: RecipientQuery): Promise<CampaignDetail>;
 	lease(id: string, req: CampaignLeaseRequest): Promise<boolean>;
 	result(
 		id: string,
@@ -44,8 +46,13 @@ export type RunEvent =
 
 export interface RunnerDeps {
 	api: RunnerApi;
-	/** Sends one copy; resolves confirmed=false when the client never confirmed. */
-	send(args: SendArgs): Promise<{ confirmed: boolean }>;
+	/**
+	 * Sends one copy; resolves confirmed=false when the client never confirmed. The
+	 * thread id lets the Worker start the copy's follow-up.
+	 */
+	send(
+		args: SendArgs,
+	): Promise<{ confirmed: boolean; providerThreadId?: string }>;
 	runnerId: string;
 	makeId(): string;
 	now(): number;
@@ -78,6 +85,24 @@ const errorText = (err: unknown) =>
 	err instanceof Error ? err.message : String(err);
 
 /**
+ * The campaign with just the recipients the next step needs: a claim an earlier run
+ * left behind (outcome unknown), else the next queued one. Recipients are paged on
+ * the Worker, so the sender never downloads the whole list.
+ */
+export async function loadNextStep(
+	api: RunnerApi,
+	id: string,
+): Promise<CampaignDetail> {
+	const campaign = await api.get(id, { state: ["queued"], limit: 1 });
+	if (campaign.stats.sending === 0) return campaign;
+	const stale = await api.get(id, { state: ["sending"], limit: 1 });
+	return {
+		...campaign,
+		recipients: [...stale.recipients, ...campaign.recipients],
+	};
+}
+
+/**
  * Sends a campaign's queued recipients one at a time: lease -> pick -> wait for the
  * throttle -> render -> claim -> send -> report. All queue state lives in the Worker,
  * so a reloaded tab resumes where the last one stopped.
@@ -93,7 +118,7 @@ export async function runCampaign(
 	let plannedDelay: number | undefined;
 
 	for (;;) {
-		const campaign = await api.get(id);
+		const campaign = await loadNextStep(api, id);
 		if (campaign.status === "done") return { outcome: "done", sent };
 		if (campaign.status !== "sending") return { outcome: "stopped", sent };
 		const leased = await api.lease(id, {
@@ -152,9 +177,11 @@ export async function runCampaign(
 		if (!claim.ok) continue; // state changed under us (cancelled, other tab)
 
 		let error = "";
+		let providerThreadId: string | undefined;
 		try {
 			const r = await deps.send({ campaign, recipient, messageId, rendered });
 			if (!r.confirmed) error = UNCONFIRMED_ERROR;
+			providerThreadId = r.providerThreadId;
 		} catch (err) {
 			error = errorText(err) || "Send failed";
 		}
@@ -164,6 +191,7 @@ export async function runCampaign(
 				state: "sent",
 				messageId,
 				sentAt: deps.now(),
+				...(providerThreadId ? { providerThreadId } : {}),
 			});
 			sent++;
 			failures = 0;
@@ -171,8 +199,7 @@ export async function runCampaign(
 				kind: "sent",
 				email: recipient.email,
 				sentThisRun: sent,
-				remaining:
-					campaign.recipients.filter((r) => r.state === "queued").length - 1,
+				remaining: Math.max(0, campaign.stats.queued - 1),
 			});
 			continue;
 		}
