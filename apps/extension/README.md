@@ -35,6 +35,7 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
 | `notify`             | `true`   | Show desktop notifications for opens and clicks.                                                     |
 | `notifyMachineOpens` | `false`  | Also notify for Apple privacy proxy and scanner opens.                                               |
 | `neverTrackDomains`  | `[]`     | If any recipient is on one of these domains (subdomains included), the email goes out untracked.     |
+| `nudges`             | see text | Follow-up defaults: schedule (3 days, then every 4, up to 3), text, stop on open, working hours.     |
 
 ## Features
 
@@ -56,10 +57,25 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
 - **Background service worker.** Polls `/api/feed` every minute, shows
   notifications, and keeps an unread count on the toolbar badge. The count clears
   when you open the popup.
+- **Follow up if no reply.** The alarm button in the compose toolbar opens a popover:
+  Off, Default (from options) or Custom (first after N days, then every M days, up to
+  K nudges, with editable text and `{{firstName|there}}`-style placeholders). After the
+  email is sent, the extension asks the Worker to create a sequence for it. With
+  "Track each recipient", every copy gets its own sequence and its own personalised
+  nudges. The Worker sends the nudges from your Gmail as replies in the thread and
+  stops when someone answers, so your computer can be off. Connect Gmail once under
+  **Options → Follow-ups** (the Worker needs Google OAuth set up; see
+  `apps/worker/README.md`). If it isn't connected, the popover and a notice after
+  sending say so. Nudges go to the original's visible To/CC, never BCC. Follow-ups
+  need tracking on for that email, and only work for mail sent from the connected
+  Gmail account.
 - **Popup and dashboard.** The popup shows recent activity. The dashboard is a
   full tab with search, a status filter, individual sends grouped per recipient,
   and an event timeline that labels each event's source (Gmail proxy, Apple
-  privacy proxy, scanner, direct) and device.
+  privacy proxy, scanner, direct) and device. Its **Follow-ups** tab lists every
+  sequence with its state, next send time and history, with pause, resume and
+  cancel. Sent nudges and replies also appear in the popup, notifications and
+  timelines; a row badge's tooltip says "Replied" once someone answers.
 
 ### The "Track each recipient" tradeoff
 
@@ -86,7 +102,8 @@ src/
     registry.ts     picks an adapter by location.hostname
     gmail/          InboxSDK implementation
   features/         content-script modules: { id, setup(ctx) }, listed in features/index.ts
-    compose-tracking/  individual-send/  own-open/  sent-status/
+    compose-tracking/  individual-send/  own-open/  sent-status/  follow-up/
+    sent-events.ts  hub: tracked sends (with thread ids) for features like follow-up
   content/          content-script entry; builds the FeatureContext
   background/       service worker: API proxy, feed polling, notifications, badge
   messaging.ts      typed content -> background message union
@@ -105,7 +122,11 @@ Create `src/features/<name>/index.ts` that exports a `Feature` (`{ id, setup(ctx
 then add it to the list in `src/features/index.ts`. `ctx` gives you the adapter, the
 API, current settings and the tracking URL builders. Shared send helpers, such as
 instrumenting HTML and building the register request, are in `src/features/tracking.ts`,
-so later modules like mail merge can reuse them. Compose `onBeforeSend` hooks run in
+so later modules like mail merge can reuse them. Features that need to act after a
+tracked message is sent (with its provider thread id) subscribe with `onTrackedSent`
+from `src/features/sent-events.ts`; senders call `emitTrackedSent`. A toolbar control can
+ask for an anchored popover (`popover: true`) and mount a Svelte component into it, as
+`follow-up/` does; content-script Svelte components inject their own CSS. Compose `onBeforeSend` hooks run in
 feature order. A hook returns `"continue"`, `"handled"` (it took over the send) or
 `"abort"`.
 
@@ -126,7 +147,7 @@ No feature code needs to change.
 
 - Unit tests, from the repo root: `npx vitest run apps/extension`. They cover split
   planning, never-track domains, badge mapping, feed text, settings defaults, the
-  status cache and dashboard grouping.
+  status cache, dashboard grouping, follow-up policies and template rendering.
 - Type check: `pnpm --filter @bet/extension typecheck`.
 - The popup, options and dashboard pages were smoke-tested in Chromium against a
   mocked Worker.
@@ -137,3 +158,5 @@ No feature code needs to change.
   - attachment detection
   - row badges
   - own-open pixel removal
+  - the follow-up popover, scheduling after a send (shared and individual), and
+    the Options → Follow-ups Gmail connection
