@@ -14,6 +14,7 @@ import { NO_STORE_HEADERS } from "../lib/gif";
 import { describeRequest, type RequestFacts } from "../lib/request";
 import { intParam } from "../lib/validate";
 import { suppressionReason } from "../services/events";
+import { isRetentionRun } from "../services/retention";
 import type { Store, StoredMessage } from "../store/types";
 import type { AppVariables, TrackerModule } from "../types";
 import { R2ObjectStore } from "./objects";
@@ -444,8 +445,8 @@ export function createDocumentsModule(
 			app.route("/api/documents", api);
 			app.route("/d", viewer);
 		},
-		async scheduled({ env, config, now }) {
-			if (config.retentionDays <= 0) return;
+		async scheduled({ env, config, now, cron }) {
+			if (config.retentionDays <= 0 || !isRetentionRun(cron, now)) return;
 			const docs = deps.store(env);
 			const result = await docs.purgeBefore(now - config.retentionDays * DAY);
 			const keys = result.documents.map((d) => d.r2Key);

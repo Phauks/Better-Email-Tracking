@@ -18,9 +18,11 @@ export interface Counts {
 	lastEventAt?: number;
 }
 
-/** Whether an event contributes to open/click counts (document views never do). */
+/** Whether an event contributes to open/click counts. */
 export function isCounted(e: StoredEvent): boolean {
-	if (e.ignored || e.type === "doc_view") return false;
+	if (e.ignored) return false;
+	// doc_view, nudge_sent and reply appear in feeds but are not opens/clicks.
+	if (e.type !== "open" && e.type !== "click") return false;
 	return e.type === "open" || e.source !== "scanner";
 }
 
@@ -134,6 +136,12 @@ export function threadStatus(
 	}
 	const out: ThreadStatus = { status, opens, clicks };
 	if (lastEventAt !== undefined) out.lastEventAt = lastEventAt;
+	if (
+		threadMessages.some((m) =>
+			eventsByMessage.get(m.id)?.some((e) => e.type === "reply" && !e.ignored),
+		)
+	)
+		out.replied = true;
 
 	const individual = new Map<string, StoredMessage>();
 	for (const m of threadMessages)

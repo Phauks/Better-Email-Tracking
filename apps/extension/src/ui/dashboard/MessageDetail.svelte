@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { MessageDetail } from "@bet/shared";
 	import { onMount } from "svelte";
-	import { deviceLabel, eventIcon, isMachineEvent, shortUrl, SOURCE_LABEL } from "../../lib/feed";
+	import { deviceLabel, eventIcon, eventSourceLabel, isMachineEvent, shortUrl } from "../../lib/feed";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 
@@ -55,10 +55,14 @@
 								{/if}
 							{:else if e.type === "doc_view"}
 								Viewed {e.documentName ? `“${e.documentName}”` : "a document"}
+							{:else if e.type === "nudge_sent"}
+								Follow-up sent
+							{:else if e.type === "reply"}
+								Replied
 							{:else}
 								Opened
 							{/if}
-							<span class="tag">{SOURCE_LABEL[e.source]}</span>
+							<span class="tag">{eventSourceLabel(e)}</span>
 							{#if e.ignored}<span class="tag">ignored: {e.ignored === "owner" ? "you" : "send grace"}</span>{/if}
 						</span>
 						<span class="when muted">

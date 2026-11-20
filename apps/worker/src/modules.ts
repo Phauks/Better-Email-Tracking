@@ -1,5 +1,6 @@
 import { campaignsModule } from "./campaigns";
 import { documentsModule } from "./documents";
+import { nudgesModule } from "./nudges/module";
 import { apiModule } from "./routes/api";
 import { trackingModule } from "./routes/tracking";
 import { retentionModule } from "./services/retention";
@@ -15,4 +16,5 @@ export const modules: TrackerModule[] = [
 	retentionModule,
 	documentsModule,
 	campaignsModule,
+	nudgesModule,
 ];

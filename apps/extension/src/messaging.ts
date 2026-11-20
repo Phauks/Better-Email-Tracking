@@ -4,6 +4,10 @@ import type {
 	ThreadStatusResponse,
 	UploadDocumentResponse,
 } from "@bet/shared";
+import type {
+	NudgeBgRequest,
+	NudgeBgResponseMap,
+} from "./features/follow-up/messages";
 
 /**
  * Typed messages from content scripts and pages to the background service worker.
@@ -18,9 +22,10 @@ export type BgRequest =
 	/** File bytes as base64: runtime messages are JSON, so ArrayBuffers can't cross. */
 	| { type: "bet:docUpload"; name: string; mime: string; dataBase64: string }
 	| { type: "bet:pollNow" }
-	| { type: "bet:markSeen" };
+	| { type: "bet:markSeen" }
+	| NudgeBgRequest;
 
-export interface BgResponseMap {
+export interface BgResponseMap extends NudgeBgResponseMap {
 	"bet:register": null;
 	"bet:markSent": null;
 	"bet:threadStatus": ThreadStatusResponse;

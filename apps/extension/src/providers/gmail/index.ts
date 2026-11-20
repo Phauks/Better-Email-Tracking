@@ -1,4 +1,9 @@
-import type { ComposeView, MessageView, ThreadRowView } from "@inboxsdk/core";
+import type {
+	ComposeView,
+	DropdownView,
+	MessageView,
+	ThreadRowView,
+} from "@inboxsdk/core";
 import * as InboxSDK from "@inboxsdk/core";
 import { svgDataUrl } from "../../ui/icons";
 import type {
@@ -13,6 +18,7 @@ import type {
 	ToolbarControl,
 	ToolbarControlOptions,
 	ToolbarControlState,
+	ToolbarPopover,
 } from "../types";
 import { detectGmailAttachments } from "./attachments";
 import { ValueStream } from "./value-stream";
@@ -105,7 +111,9 @@ class GmailComposeSession implements ComposeSession {
 			tooltip: s.tooltip,
 			iconUrl: svgDataUrl(s.iconSvg, s.color),
 			type: "MODIFIER" as const,
-			onClick: () => opts.onClick(),
+			hasDropdown: opts.popover ?? false,
+			onClick: (e?: { dropdown?: DropdownView }) =>
+				opts.onClick(e?.dropdown ? gmailPopover(e.dropdown) : undefined),
 		});
 		const stream = new ValueStream<ReturnType<typeof toDescriptor> | null>(
 			toDescriptor(opts),
@@ -222,6 +230,18 @@ export async function createGmailAdapter(): Promise<MailClientAdapter> {
 		},
 		getRootElement() {
 			return document.body;
+		},
+	};
+}
+
+function gmailPopover(dropdown: DropdownView): ToolbarPopover {
+	return {
+		el: dropdown.el,
+		close: () => {
+			if (!dropdown.destroyed) dropdown.close();
+		},
+		onClose: (cb) => {
+			dropdown.on("destroy", cb);
 		},
 	};
 }

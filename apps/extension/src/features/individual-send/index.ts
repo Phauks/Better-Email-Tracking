@@ -77,10 +77,16 @@ async function maybeSplit(ctx: FeatureContext, session: ComposeSession) {
 	for (const copy of copies) {
 		try {
 			await sendCopy(ctx, {
-				id: copy.plan.id,
 				to: copy.plan.recipient.email,
 				subject,
 				html: copy.html,
+				tracked: {
+					id: copy.plan.id,
+					recipient: copy.plan.recipient,
+					mode: "individual",
+					groupId: plan.groupId,
+					origin: session,
+				},
 			});
 			sent++;
 		} catch (err) {

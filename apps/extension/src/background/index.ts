@@ -5,6 +5,7 @@ import { loadSettings } from "../settings";
 import { documentHandlers } from "./documents";
 import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
 import "./mail-merge";
+import { nudgeHandlers } from "./nudges";
 
 const POLL_ALARM = "bet-poll-feed";
 
@@ -69,6 +70,7 @@ listenForBgRequests({
 		await markAllSeen();
 		return null;
 	},
+	...nudgeHandlers,
 });
 
 ensureAlarm();

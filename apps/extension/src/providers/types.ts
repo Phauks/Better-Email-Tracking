@@ -34,8 +34,17 @@ export interface ToolbarControl {
 	remove(): void;
 }
 
+/** A small panel anchored to a toolbar control (Gmail: the button's dropdown). */
+export interface ToolbarPopover {
+	readonly el: HTMLElement;
+	close(): void;
+	onClose(cb: () => void): void;
+}
+
 export interface ToolbarControlOptions extends ToolbarControlState {
-	onClick(): void;
+	/** Ask for an anchored popover. Providers that can't give one pass undefined to onClick. */
+	popover?: boolean;
+	onClick(popover?: ToolbarPopover): void;
 }
 
 export interface ComposeSession {

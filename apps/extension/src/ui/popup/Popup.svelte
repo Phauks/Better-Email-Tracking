@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import type { ActivityItem } from "../../lib/activity";
-	import { describeEvent, isMachineEvent, SOURCE_LABEL } from "../../lib/feed";
+	import { describeEvent, eventIcon, eventSourceLabel, isMachineEvent } from "../../lib/feed";
 	import { relativeTime } from "../../lib/time";
 	import { callBackground } from "../../messaging";
 	import { isConfigured, loadSettings } from "../../settings";
@@ -76,12 +76,12 @@
 				<li class:unseen={!item.seen} class:machine={isMachineEvent(item)}>
 					<button class="row" onclick={() => open(`dashboard.html#message=${item.messageId}`)}>
 						<span class="kind">
-							<Icon name={item.type === "click" ? "cursor-click" : item.type === "doc_view" ? "file-text" : isMachineEvent(item) ? "robot" : "eye"} />
+							<Icon name={eventIcon(item)} />
 						</span>
 						<span class="text">
 							<span class="title">{d.title}</span>
 							<span class="detail">{d.detail}</span>
-							<span class="meta">{relativeTime(item.at)} · {SOURCE_LABEL[item.source]}</span>
+							<span class="meta">{relativeTime(item.at)} · {eventSourceLabel(item)}</span>
 						</span>
 					</button>
 				</li>
@@ -94,6 +94,9 @@
 	<footer>
 		<button class="btn" onclick={() => open("dashboard.html")}>
 			Open dashboard <Icon name="arrow-square-out" size={14} />
+		</button>
+		<button class="btn" onclick={() => open("dashboard.html#followups")}>
+			<Icon name="alarm" size={14} /> Follow-ups
 		</button>
 	</footer>
 </main>
@@ -118,6 +121,7 @@
 	footer {
 		border-top: 1px solid var(--border);
 		justify-content: center;
+		gap: 8px;
 	}
 	.brand {
 		display: inline-flex;

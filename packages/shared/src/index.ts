@@ -5,5 +5,6 @@ export * from "./documents";
 export * from "./ids";
 export * from "./instrument";
 export * from "./merge";
+export * from "./nudges";
 export * from "./status";
 export * from "./urls";

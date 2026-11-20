@@ -9,6 +9,7 @@ import {
 import { type Context, Hono } from "hono";
 import { DAY, type Env } from "../env";
 import { intParam } from "../lib/validate";
+import { isRetentionRun } from "../services/retention";
 import { groupByMessage } from "../services/summary";
 import type { StoredMessage } from "../store/types";
 import type { AppEnv, TrackerModule } from "../types";
@@ -309,8 +310,8 @@ export function createCampaignsModule(
 		register(app) {
 			app.route("/api/campaigns", routes);
 		},
-		async scheduled({ env, config, now }) {
-			if (config.retentionDays <= 0) return;
+		async scheduled({ env, config, now, cron }) {
+			if (config.retentionDays <= 0 || !isRetentionRun(cron, now)) return;
 			const purged = await storeFor(env).purgeBefore(
 				now - config.retentionDays * DAY,
 			);

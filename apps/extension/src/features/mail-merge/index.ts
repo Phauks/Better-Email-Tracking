@@ -49,18 +49,19 @@ async function sendMergedCopy(
 		trackLinks: campaign.settings.trackLinks,
 	});
 	await ctx.api.register(prepared.request);
+	// Only a confirmed send is marked sent; an unconfirmed one is reported as failed.
 	const r = await sendCopy(ctx, {
 		to: recipient.email,
 		subject: rendered.subject,
 		html: prepared.html,
+		tracked: {
+			id: messageId,
+			recipient: to,
+			mode: "individual",
+			groupId: campaign.id,
+			requireConfirmation: true,
+		},
 	});
-	// Only a confirmed send is marked sent; an unconfirmed one is reported as failed.
-	if (r.confirmed) {
-		const { confirmed: _c, ...info } = r;
-		await ctx.api
-			.markSent(messageId, { sentAt: Date.now(), ...info })
-			.catch((err) => console.warn("[bet] markSent failed", err));
-	}
 	return { confirmed: r.confirmed };
 }
 

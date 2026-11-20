@@ -2,18 +2,27 @@
 	import type { MessageSummary } from "@bet/shared";
 	import { onMount } from "svelte";
 	import { filterEntries, groupMessages, messageStatus, type StatusFilter } from "../../lib/dashboard";
+	import { nudgeMessageIds } from "../../lib/nudges";
 	import { plural, relativeTime } from "../../lib/time";
 	import { isConfigured, loadSettings } from "../../settings";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
+	import type { IconName } from "../icons";
 	import StatusIcon from "../components/StatusIcon.svelte";
 	import Documents from "../documents/Documents.svelte";
+	import FollowUps from "./FollowUps.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
 	import MailMerge from "../mail-merge/MailMerge.svelte";
 
-	type View = "emails" | "documents" | "merge";
-	const viewFromHash = (): View =>
-		location.hash === "#merge" ? "merge" : location.hash === "#documents" ? "documents" : "emails";
+	type View = "emails" | "documents" | "merge" | "followups";
+	const VIEWS: { id: View; label: string; icon: IconName }[] = [
+		{ id: "emails", label: "Emails", icon: "envelope-simple-open" },
+		{ id: "documents", label: "Documents", icon: "file-text" },
+		{ id: "merge", label: "Mail merge", icon: "paper-plane-tilt" },
+		{ id: "followups", label: "Follow-ups", icon: "alarm" },
+	];
+	/** #documents, #merge, #followups; anything else (including #message=…) is the email list. */
+	const viewFromHash = (): View => VIEWS.find((v) => v.id !== "emails" && location.hash === `#${v.id}`)?.id ?? "emails";
 	let view = $state<View>(viewFromHash());
 
 	let query = $state("");
@@ -36,7 +45,15 @@
 		error = "";
 		try {
 			const api = await pageApi();
-			messages = (await api.listMessages({ q: query.trim(), limit: 200 })).messages;
+			// Nudges are tracked messages too; they show under Follow-ups, not as emails.
+			const [list, hidden] = await Promise.all([
+				api.listMessages({ q: query.trim(), limit: 200 }),
+				api.listNudges({ limit: 500 }).then(
+					(r) => nudgeMessageIds(r.sequences),
+					() => new Set<string>(),
+				),
+			]);
+			messages = list.messages.filter((m) => !hidden.has(m.id));
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
@@ -48,6 +65,12 @@
 	function onSearch() {
 		clearTimeout(debounce);
 		debounce = setTimeout(load, 250);
+	}
+
+	function openMessage(id: string) {
+		showView("emails");
+		focusId = id;
+		expanded[id] = true;
 	}
 
 	const toggle = (key: string) => {
@@ -107,14 +130,22 @@
 
 <main>
 	<nav class="tabs" aria-label="Dashboard sections">
-		<button class:active={view === "emails"} onclick={() => showView("emails")}><Icon name="envelope-simple-open" size={16} /> Emails</button>
-		<button class:active={view === "documents"} onclick={() => showView("documents")}><Icon name="file-text" size={16} /> Documents</button>
-		<button class:active={view === "merge"} onclick={() => showView("merge")}><Icon name="paper-plane-tilt" size={16} /> Mail merge</button>
+		{#each VIEWS as v (v.id)}
+			<button class:active={view === v.id} aria-current={view === v.id ? "page" : undefined} onclick={() => showView(v.id)}>
+				<Icon name={v.icon} size={16} /> {v.label}
+			</button>
+		{/each}
 	</nav>
 	{#if view === "documents"}
 	<Documents />
 	{:else if view === "merge"}
 	<MailMerge />
+	{:else if view === "followups"}
+		{#if configured}
+			<FollowUps onopenmessage={openMessage} />
+		{:else}
+			<p class="empty">Connect your tracking server in <a href="options.html">settings</a> first.</p>
+		{/if}
 	{:else}
 	<header>
 		<h1><Icon name="envelope-simple-open" size={22} /> Tracked emails</h1>

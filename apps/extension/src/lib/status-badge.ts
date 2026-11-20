@@ -36,6 +36,7 @@ export function badgeForStatus(
 ): BadgeSpec {
 	const style = STATUS_STYLE[status.status];
 	const lines = [style.label];
+	if (status.replied) lines.push("Replied");
 	const counts: string[] = [];
 	if (status.opens > 0) counts.push(plural(status.opens, "open"));
 	if (status.clicks > 0) counts.push(plural(status.clicks, "click"));

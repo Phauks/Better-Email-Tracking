@@ -1,5 +1,6 @@
 import { composeTracking } from "./compose-tracking";
 import { documentTracking } from "./documents";
+import { followUp } from "./follow-up";
 import { individualSend } from "./individual-send";
 import { mailMerge } from "./mail-merge";
 import { ownOpen } from "./own-open";
@@ -19,4 +20,5 @@ export const FEATURES: Feature[] = [
 	sentStatus,
 	documentTracking,
 	mailMerge,
+	followUp,
 ];

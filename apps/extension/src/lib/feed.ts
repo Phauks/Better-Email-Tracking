@@ -26,13 +26,6 @@ export function sourceIcon(source: EventSource): IconName {
 	}
 }
 
-/** Timeline/feed icon: clicks and document views by type, opens by source. */
-export function eventIcon(e: Pick<TrackingEvent, "type" | "source">): IconName {
-	if (e.type === "click") return "cursor-click";
-	if (e.type === "doc_view") return "file-text";
-	return sourceIcon(e.source);
-}
-
 export function isMachineEvent(e: Pick<TrackingEvent, "source">): boolean {
 	return !isLikelyHuman(e.source);
 }
@@ -61,6 +54,9 @@ export function describeEvent(e: {
 			detail: subject,
 		};
 	}
+	if (e.type === "reply") return { title: `${who} replied`, detail: subject };
+	if (e.type === "nudge_sent")
+		return { title: `Follow-up sent to ${who}`, detail: subject };
 	if (e.type === "click") {
 		return {
 			title: `${who} clicked a link`,
@@ -69,6 +65,30 @@ export function describeEvent(e: {
 	}
 	const verb = isMachineEvent(e) ? "had a machine open" : "opened";
 	return { title: `${who} ${verb}`, detail: subject };
+}
+
+/** Source label for opens/clicks; document views and nudge events name their feature. */
+export function eventSourceLabel(
+	e: Pick<TrackingEvent, "type" | "source">,
+): string {
+	if (e.type === "open" || e.type === "click") return SOURCE_LABEL[e.source];
+	return e.type === "doc_view" ? "Document viewer" : "Follow-ups";
+}
+
+/** Timeline/feed icon: clicks, document views and follow-up events by type, opens by source. */
+export function eventIcon(e: Pick<TrackingEvent, "type" | "source">): IconName {
+	switch (e.type) {
+		case "click":
+			return "cursor-click";
+		case "doc_view":
+			return "file-text";
+		case "nudge_sent":
+			return "arrow-bend-up-right";
+		case "reply":
+			return "chat-circle-text";
+		default:
+			return sourceIcon(e.source);
+	}
 }
 
 export function shortUrl(url: string): string {
