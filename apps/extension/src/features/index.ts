@@ -10,8 +10,10 @@ import type { Feature } from "./types";
 /**
  * Every content-script feature, set up in this order. Order matters for compose
  * before-send hooks: individual-send must come before compose-tracking so it can take
- * over a send before shared tracking is applied. New modules (follow-up nudges,
- * document tracking, mail merge) slot in here.
+ * over a send before shared tracking is applied. The rest add no before-send hooks:
+ * documents only inserts links (instrumentation rewrites them per copy), mail merge
+ * sends from its own queue, and follow-up listens for onTrackedSent. Order among them
+ * only sets the order of their compose toolbar buttons.
  */
 export const FEATURES: Feature[] = [
 	individualSend,
