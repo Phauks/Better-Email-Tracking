@@ -7,6 +7,7 @@ import {
 	fieldKey,
 	firstName,
 	isValidEmail,
+	type MergeRecipient,
 	parseAddress,
 	parseCsv,
 	parseCsvRecords,
@@ -240,7 +241,7 @@ describe("templates", () => {
 	});
 
 	it("previews every recipient and finds unknown fields", () => {
-		const recipients = [
+		const recipients: MergeRecipient[] = [
 			{ email: "a@b.co", fields: { email: "a@b.co", name: "A" } },
 			{ email: "c@d.co", fields: { email: "c@d.co" } },
 		];
