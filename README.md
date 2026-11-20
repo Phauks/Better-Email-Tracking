@@ -10,6 +10,7 @@ Self-hosted open and click tracking for Gmail, built for one person. No "Sent wi
 - **Honest opens**: Gmail image proxy, Apple Mail Privacy Protection (machine) and security scanners are labelled separately.
 - **Tracked documents**: upload a file from compose or the dashboard and link it; each recipient gets their own link, with views, reading time per page and downloads.
 - **Sent-list status icons**, desktop notifications, a popup activity feed and a full dashboard tab.
+- **Mail merge**: send a personalised email to a CSV list from your own Gmail, one tracked copy per recipient, throttled and resumable, with per-recipient status and a one-click follow-up to non-openers.
 
 ## Layout
 
@@ -39,4 +40,4 @@ Tracking collects when, and roughly how, your recipients read your mail. Raw IPs
 
 ## Roadmap
 
-Follow-up nudges until reply, and bulk mail merge with per-recipient tracking.
+Follow-up nudges until reply.

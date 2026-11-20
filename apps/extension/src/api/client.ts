@@ -29,7 +29,7 @@ export class ApiClient {
 	) {}
 
 	protected async request<T>(
-		method: "GET" | "POST" | "DELETE",
+		method: "GET" | "POST" | "PATCH" | "DELETE",
 		path: string,
 		body?: unknown,
 		auth = true,

@@ -11,7 +11,6 @@ import arrowSquareOut from "@phosphor-icons/core/assets/regular/arrow-square-out
 import bell from "@phosphor-icons/core/assets/regular/bell.svg?raw";
 import caretDown from "@phosphor-icons/core/assets/regular/caret-down.svg?raw";
 import caretRight from "@phosphor-icons/core/assets/regular/caret-right.svg?raw";
-import clock from "@phosphor-icons/core/assets/regular/clock.svg?raw";
 import desktop from "@phosphor-icons/core/assets/regular/desktop.svg?raw";
 import deviceMobile from "@phosphor-icons/core/assets/regular/device-mobile.svg?raw";
 import downloadSimple from "@phosphor-icons/core/assets/regular/download-simple.svg?raw";
@@ -27,11 +26,10 @@ import magnifyingGlass from "@phosphor-icons/core/assets/regular/magnifying-glas
 import plugsConnected from "@phosphor-icons/core/assets/regular/plugs-connected.svg?raw";
 import robot from "@phosphor-icons/core/assets/regular/robot.svg?raw";
 import shieldCheck from "@phosphor-icons/core/assets/regular/shield-check.svg?raw";
-import trash from "@phosphor-icons/core/assets/regular/trash.svg?raw";
-import uploadSimple from "@phosphor-icons/core/assets/regular/upload-simple.svg?raw";
 import users from "@phosphor-icons/core/assets/regular/users.svg?raw";
 import warning from "@phosphor-icons/core/assets/regular/warning.svg?raw";
 import x from "@phosphor-icons/core/assets/regular/x.svg?raw";
+import { MERGE_ICONS } from "./icons-merge";
 
 export const ICONS = {
 	"arrow-clockwise": arrowClockwise,
@@ -56,13 +54,11 @@ export const ICONS = {
 	users,
 	warning,
 	x,
-	clock,
 	"download-simple": downloadSimple,
 	"file-arrow-up": fileArrowUp,
 	"file-pdf": filePdf,
 	"file-text": fileText,
-	trash,
-	"upload-simple": uploadSimple,
+	...MERGE_ICONS,
 } as const;
 
 export type IconName = keyof typeof ICONS;

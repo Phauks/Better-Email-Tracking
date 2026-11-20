@@ -30,13 +30,13 @@ export const GOOGLE_PROXY_UA =
 export function setup(
 	envOverrides: Partial<Env> = {},
 	/** Replace the module list, e.g. to inject a feature module's test doubles. */
-	makeModules?: (store: MemoryStore) => TrackerModule[],
+	modules?: TrackerModule[] | ((store: MemoryStore) => TrackerModule[]),
 ) {
 	const store = new MemoryStore();
 	const clock = { now: T0 };
 	const app = createApp(
 		{ store: () => store, now: () => clock.now },
-		makeModules?.(store),
+		typeof modules === "function" ? modules(store) : modules,
 	);
 	const env: Env = {
 		DB: {} as D1Database,

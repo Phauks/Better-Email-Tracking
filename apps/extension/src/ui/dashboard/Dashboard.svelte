@@ -9,6 +9,12 @@
 	import StatusIcon from "../components/StatusIcon.svelte";
 	import Documents from "../documents/Documents.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
+	import MailMerge from "../mail-merge/MailMerge.svelte";
+
+	type View = "emails" | "documents" | "merge";
+	const viewFromHash = (): View =>
+		location.hash === "#merge" ? "merge" : location.hash === "#documents" ? "documents" : "emails";
+	let view = $state<View>(viewFromHash());
 
 	let query = $state("");
 	let filter = $state<StatusFilter>("all");
@@ -18,10 +24,9 @@
 	let configured = $state(true);
 	let expanded = $state<Record<string, boolean>>({});
 	let focusId = $state<string | null>(null);
-	let view = $state<"emails" | "documents">(location.hash === "#documents" ? "documents" : "emails");
-	const showView = (v: typeof view) => {
+	const showView = (v: View) => {
 		view = v;
-		history.replaceState(null, "", v === "documents" ? "#documents" : location.pathname);
+		history.replaceState(null, "", v === "emails" ? location.pathname : `#${v}`);
 	};
 
 	const entries = $derived(filterEntries(groupMessages(messages), filter));
@@ -50,6 +55,7 @@
 	};
 
 	onMount(() => {
+		addEventListener("hashchange", () => (view = viewFromHash()));
 		const m = /message=([0-9A-Za-z]+)/.exec(location.hash);
 		if (m?.[1]) {
 			focusId = m[1];
@@ -103,9 +109,12 @@
 	<nav class="tabs" aria-label="Dashboard sections">
 		<button class:active={view === "emails"} onclick={() => showView("emails")}><Icon name="envelope-simple-open" size={16} /> Emails</button>
 		<button class:active={view === "documents"} onclick={() => showView("documents")}><Icon name="file-text" size={16} /> Documents</button>
+		<button class:active={view === "merge"} onclick={() => showView("merge")}><Icon name="paper-plane-tilt" size={16} /> Mail merge</button>
 	</nav>
 	{#if view === "documents"}
 	<Documents />
+	{:else if view === "merge"}
+	<MailMerge />
 	{:else}
 	<header>
 		<h1><Icon name="envelope-simple-open" size={22} /> Tracked emails</h1>
