@@ -76,7 +76,7 @@
 				<li class:unseen={!item.seen} class:machine={isMachineEvent(item)}>
 					<button class="row" onclick={() => open(`dashboard.html#message=${item.messageId}`)}>
 						<span class="kind">
-							<Icon name={item.type === "click" ? "cursor-click" : isMachineEvent(item) ? "robot" : "eye"} />
+							<Icon name={item.type === "click" ? "cursor-click" : item.type === "doc_view" ? "file-text" : isMachineEvent(item) ? "robot" : "eye"} />
 						</span>
 						<span class="text">
 							<span class="title">{d.title}</span>

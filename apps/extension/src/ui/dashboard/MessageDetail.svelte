@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { MessageDetail } from "@bet/shared";
 	import { onMount } from "svelte";
-	import { deviceLabel, isMachineEvent, shortUrl, SOURCE_LABEL, sourceIcon } from "../../lib/feed";
+	import { deviceLabel, eventIcon, isMachineEvent, shortUrl, SOURCE_LABEL } from "../../lib/feed";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 
@@ -41,7 +41,7 @@
 				{#each [...detail.events].sort((a, b) => b.at - a.at) as e (e.id)}
 					<li class:machine={isMachineEvent(e)} class:ignored={!!e.ignored}>
 						<span class="dot">
-							<Icon name={e.type === "click" ? "cursor-click" : sourceIcon(e.source)} size={14} />
+							<Icon name={eventIcon(e)} size={14} />
 						</span>
 						<span class="what">
 							{#if e.type === "click"}
@@ -53,6 +53,8 @@
 								{:else}
 									a link
 								{/if}
+							{:else if e.type === "doc_view"}
+								Viewed {e.documentName ? `“${e.documentName}”` : "a document"}
 							{:else}
 								Opened
 							{/if}

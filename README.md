@@ -8,15 +8,16 @@ Self-hosted open and click tracking for Gmail, built for one person. No "Sent wi
 - **Track each recipient**: optionally sends each recipient their own copy so you see exactly who opened (recipients no longer see each other; CC/BCC become separate emails).
 - **Ignores your own opens**: send-time grace window, "owner is viewing" signal from the extension, and your IP for direct loads.
 - **Honest opens**: Gmail image proxy, Apple Mail Privacy Protection (machine) and security scanners are labelled separately.
+- **Tracked documents**: upload a file from compose or the dashboard and link it; each recipient gets their own link, with views, reading time per page and downloads.
 - **Sent-list status icons**, desktop notifications, a popup activity feed and a full dashboard tab.
 
 ## Layout
 
-| Path              | What                                                                                                |
-| ----------------- | --------------------------------------------------------------------------------------------------- |
-| `packages/shared` | Provider-neutral HTTP contract, URL builders, HTML instrumentation, request classification          |
-| `apps/worker`     | Cloudflare Worker (Hono + D1): pixel, click redirect, API, retention cron. See its README to deploy |
-| `apps/extension`  | Chrome MV3 extension (Svelte 5, Vite, InboxSDK for Gmail). See its README to load it                |
+| Path              | What                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` | Provider-neutral HTTP contract, URL builders, HTML instrumentation, request classification                                |
+| `apps/worker`     | Cloudflare Worker (Hono + D1 + R2): pixel, click redirect, document viewer, API, retention cron. See its README to deploy |
+| `apps/extension`  | Chrome MV3 extension (Svelte 5, Vite, InboxSDK for Gmail). See its README to load it                                      |
 
 Both apps are modular: Worker features register in `apps/worker/src/modules.ts`, extension features in `apps/extension/src/features/index.ts`, and mail clients behind `MailClientAdapter` in `apps/extension/src/providers/` (Gmail today; Outlook or Yahoo can be added as new adapters).
 
@@ -38,4 +39,4 @@ Tracking collects when, and roughly how, your recipients read your mail. Raw IPs
 
 ## Roadmap
 
-Document and attachment tracking with page views, follow-up nudges until reply, and bulk mail merge with per-recipient tracking.
+Follow-up nudges until reply, and bulk mail merge with per-recipient tracking.

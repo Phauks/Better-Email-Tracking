@@ -25,6 +25,8 @@ export interface RegisterMessageRequest {
 	groupId?: string;
 	trackOpens: boolean;
 	trackLinks: boolean;
+	/** Tracked document ids linked from the body (see documents.ts). */
+	documents?: string[];
 }
 
 export interface MarkSentRequest {
@@ -33,7 +35,8 @@ export interface MarkSentRequest {
 	providerMessageId?: string;
 }
 
-export type EventType = "open" | "click";
+/** doc_view: a recipient opened a tracked document linked from this message. */
+export type EventType = "open" | "click" | "doc_view";
 export type IgnoreReason = "owner" | "send_grace";
 
 export interface TrackingEvent {
@@ -47,6 +50,9 @@ export interface TrackingEvent {
 	location?: string;
 	device?: string;
 	ignored?: IgnoreReason;
+	/** doc_view events only. */
+	documentId?: string;
+	documentName?: string;
 }
 
 export interface MessageSummary {

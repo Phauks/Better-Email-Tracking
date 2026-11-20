@@ -1,7 +1,8 @@
 # @bet/worker
 
 Cloudflare Worker (Hono + D1) that serves the open pixel (`/o/:id.gif`), the click
-redirect (`/c/:id/:idx`) and the authenticated `/api/*` used by the extension.
+redirect (`/c/:id/:idx`), tracked documents (`/d/:docId/:messageId`) and the
+authenticated `/api/*` used by the extension.
 
 ## Layout
 
@@ -11,6 +12,7 @@ redirect (`/c/:id/:idx`) and the authenticated `/api/*` used by the extension.
 - `src/routes/`: `tracking.ts` (pixel/click), `api.ts` (JSON API)
 - `src/services/`: event recording and own-open suppression, summaries, retention
 - `src/store/`: `Store` interface, `D1Store` (production), `MemoryStore` (tests)
+- `src/documents/`: tracked documents module (own `DocumentStore`, R2 `ObjectStore`, viewer page)
 - `migrations/`: D1 schema
 
 ## Setup and deploy
@@ -20,6 +22,7 @@ cd apps/worker
 npx wrangler login
 npx wrangler d1 create bet            # copy database_id into wrangler.toml
 npx wrangler d1 migrations apply bet --remote
+npx wrangler r2 bucket create bet-docs  # tracked documents (binding DOCS in wrangler.toml)
 npx wrangler secret put API_TOKEN     # long random string; paste the same into the extension
 npx wrangler secret put IP_SALT       # another random string
 npx wrangler deploy
@@ -41,8 +44,36 @@ tracker URL in the extension.
 | `RETENTION_DAYS`       | 180       | Daily cron deletes older data (0 disables)                                |
 | `STORE_LOCATION`       | `"false"` | `"true"` stores coarse city/country                                       |
 | `ALLOWED_ORIGINS`      | unset     | Extra CORS origins, comma-separated (extension origins always allowed)    |
+| `DOCS_MAX_MB`          | 25        | Upload limit for tracked documents                                        |
 
 Raw IPs are never stored, only a salted, truncated SHA-256.
+
+## Tracked documents
+
+Files live in the R2 bucket bound as `DOCS` (rename `bucket_name` in `wrangler.toml` if
+you like; uploads answer 503 until a bucket is bound). Metadata and views are in D1
+(`migrations/0002_documents.sql`).
+
+| Route                                  | Auth   | What                                                                           |
+| -------------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| `POST /api/documents?name=<file name>` | bearer | Upload (raw body with `Content-Type`, or multipart field `file`). `{id, url}`  |
+| `GET /api/documents`                   | bearer | List with views, unique viewers, downloads, total reading time                 |
+| `GET /api/documents/:id`               | bearer | Per-recipient rows, per-page reading time, activity                            |
+| `GET /api/documents/:id/file`          | bearer | Owner preview; never counted                                                   |
+| `POST /api/documents/attach`           | bearer | `{messageId, documentIds}`: which documents a message links to                 |
+| `DELETE /api/documents/:id`            | bearer | Deletes the object, its rows and its feed entries                              |
+| `GET /d/:docId[/:messageId]`           | none   | Viewer: pdf.js (cdnjs, pinned in `src/documents/viewer.ts`) or a download page |
+| `GET /d/:docId[/:messageId]/file`      | none   | The file, `no-store`; `?download=1` for an attachment                          |
+| `POST /d/:docId[/:messageId]/events`   | none   | Viewer beacons: `view`, `page` (dwell per page), `download`; 8 KB cap          |
+
+The extension inserts `/d/<docId>`; at send time instrumentation rewrites it to
+`/d/<docId>/<messageId>`, so a view names its message, and in individual mode its
+recipient. Views run through the same classification and own-open suppression as
+opens (send grace, owner window, owner IP); page and download beacons inherit the
+classification of their view. Views of a tracked message also land in the events
+table as `doc_view`, so they show up in `/api/feed` but never change open or click
+counts. The daily cron purges document events older than `RETENTION_DAYS` and
+documents uploaded before then, with their R2 objects.
 
 ## Local dev
 

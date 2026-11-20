@@ -2,6 +2,8 @@
 export interface TrackingUrls {
 	pixel(messageId: string): string;
 	click(messageId: string, linkIndex: number): string;
+	/** Tracked document link; per-message once instrumented at send time. */
+	document(documentId: string, messageId?: string): string;
 }
 
 export function trackingUrls(baseUrl: string): TrackingUrls {
@@ -9,6 +11,8 @@ export function trackingUrls(baseUrl: string): TrackingUrls {
 	return {
 		pixel: (id) => `${base}/o/${id}.gif`,
 		click: (id, idx) => `${base}/c/${id}/${idx}`,
+		document: (docId, messageId) =>
+			messageId ? `${base}/d/${docId}/${messageId}` : `${base}/d/${docId}`,
 	};
 }
 

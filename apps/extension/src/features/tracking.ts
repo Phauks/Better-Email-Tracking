@@ -45,7 +45,7 @@ export function prepareTrackedMessage(
 	},
 ): PreparedMessage {
 	const trackLinks = ctx.settings().trackLinks;
-	const { html, links } = instrumentHtml(args.html, {
+	const { html, links, documents } = instrumentHtml(args.html, {
 		messageId: args.id,
 		urls: ctx.urls(),
 		trackOpens: true,
@@ -63,6 +63,7 @@ export function prepareTrackedMessage(
 		trackLinks,
 	};
 	if (args.groupId) request.groupId = args.groupId;
+	if (documents.length) request.documents = documents;
 	return { html, request };
 }
 

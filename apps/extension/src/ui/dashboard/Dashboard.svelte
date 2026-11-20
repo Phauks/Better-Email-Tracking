@@ -7,6 +7,7 @@
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
+	import Documents from "../documents/Documents.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
 
 	let query = $state("");
@@ -17,6 +18,11 @@
 	let configured = $state(true);
 	let expanded = $state<Record<string, boolean>>({});
 	let focusId = $state<string | null>(null);
+	let view = $state<"emails" | "documents">(location.hash === "#documents" ? "documents" : "emails");
+	const showView = (v: typeof view) => {
+		view = v;
+		history.replaceState(null, "", v === "documents" ? "#documents" : location.pathname);
+	};
 
 	const entries = $derived(filterEntries(groupMessages(messages), filter));
 
@@ -94,6 +100,13 @@
 {/snippet}
 
 <main>
+	<nav class="tabs" aria-label="Dashboard sections">
+		<button class:active={view === "emails"} onclick={() => showView("emails")}><Icon name="envelope-simple-open" size={16} /> Emails</button>
+		<button class:active={view === "documents"} onclick={() => showView("documents")}><Icon name="file-text" size={16} /> Documents</button>
+	</nav>
+	{#if view === "documents"}
+	<Documents />
+	{:else}
 	<header>
 		<h1><Icon name="envelope-simple-open" size={22} /> Tracked emails</h1>
 		<div class="tools">
@@ -156,9 +169,31 @@
 			</ul>
 		{/if}
 	{/if}
+	{/if}
 </main>
 
 <style>
+	.tabs {
+		display: flex;
+		gap: 4px;
+		border-bottom: 1px solid var(--border);
+		margin-bottom: 16px;
+	}
+	.tabs button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 12px;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+	.tabs button.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
 	main {
 		max-width: 960px;
 		margin: 0 auto;

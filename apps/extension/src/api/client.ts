@@ -23,13 +23,13 @@ export class ApiError extends Error {
 /** Typed client for the tracking Worker. Used by the background worker and extension pages. */
 export class ApiClient {
 	constructor(
-		private readonly baseUrl: string,
-		private readonly token: string,
-		private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
+		protected readonly baseUrl: string,
+		protected readonly token: string,
+		protected readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
 	) {}
 
-	private async request<T>(
-		method: "GET" | "POST",
+	protected async request<T>(
+		method: "GET" | "POST" | "DELETE",
 		path: string,
 		body?: unknown,
 		auth = true,
