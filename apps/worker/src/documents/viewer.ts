@@ -1,4 +1,4 @@
-import { formatBytes } from "@bet/shared";
+import { escapeHtml, formatBytes } from "@bet/shared";
 
 /** pdf.js from cdnjs, pinned to an exact version. Bump both URLs together. */
 export const PDFJS_VERSION = "4.10.38";
@@ -15,15 +15,6 @@ export interface ViewerConfig {
 	download: string;
 	events: string;
 }
-
-const escapeHtml = (s: string) =>
-	s.replace(
-		/[&<>"']/g,
-		(c) =>
-			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-				c
-			] as string,
-	);
 
 /** JSON that is safe inside a <script> element. */
 const scriptJson = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");

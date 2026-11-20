@@ -1,5 +1,6 @@
 import {
 	type CreateNudgeRequest,
+	escapeHtml,
 	NUDGE_LIMITS,
 	type NudgePolicy,
 	type NudgeSequence,
@@ -137,14 +138,6 @@ export function describePolicy(p: NudgePolicy): string {
 	const first = `After ${plural(p.firstAfterDays, "day")}`;
 	if (p.maxNudges <= 1) return `${first} · 1 nudge`;
 	return `${first}, then every ${plural(p.intervalDays, "day")} · up to ${plural(p.maxNudges, "nudge")}`;
-}
-
-function escapeHtml(s: string): string {
-	return s
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
 }
 
 /** Plain text to simple HTML: paragraphs on blank lines, <br> on single newlines. */

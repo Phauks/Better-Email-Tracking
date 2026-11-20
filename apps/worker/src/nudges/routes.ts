@@ -1,5 +1,6 @@
 import {
 	type ConnectorStatusResponse,
+	escapeHtml,
 	isValidId,
 	type ListNudgesResponse,
 	NUDGE_API,
@@ -97,16 +98,6 @@ function googleOAuthConfig(c: Ctx): GoogleOAuthConfig | null {
 			env.GOOGLE_REDIRECT_URI ||
 			`${new URL(c.req.url).origin}${NUDGE_API.oauthCallback("google")}`,
 	};
-}
-
-function escapeHtml(s: string): string {
-	return s.replace(
-		/[&<>"']/g,
-		(ch) =>
-			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-				ch
-			] ?? ch,
-	);
 }
 
 function resultPage(c: Ctx, ok: boolean, text: string, status = 200) {

@@ -7,4 +7,5 @@ export * from "./instrument";
 export * from "./merge";
 export * from "./nudges";
 export * from "./status";
+export * from "./text";
 export * from "./urls";

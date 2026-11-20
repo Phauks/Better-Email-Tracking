@@ -1,6 +1,7 @@
 import {
 	type DocumentPageStats,
 	type DocumentRecipientStats,
+	escapeHtml,
 	formatBytes,
 	isPdf,
 } from "@bet/shared";
@@ -8,15 +9,6 @@ import type { IconName } from "../ui/icons";
 import { recipientLabel } from "./feed";
 
 /** Pure helpers for tracked documents (compose link, hints, dashboard). */
-
-const escapeHtml = (s: string) =>
-	s.replace(
-		/[&<>"']/g,
-		(c) =>
-			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-				c
-			] as string,
-	);
 
 /**
  * The chip inserted into the email body. Inline styles only (mail clients strip

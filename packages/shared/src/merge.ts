@@ -1,3 +1,5 @@
+import { escapeHtml, firstName } from "./text";
+
 /**
  * Mail merge engine: CSV parsing, column mapping, recipient validation and templates.
  * Pure and environment-neutral (dashboard, content script, Worker and tests all use it).
@@ -279,13 +281,6 @@ export function buildRecipients(
 	return { recipients, issues };
 }
 
-/** "Ada Lovelace" -> "Ada"; "Lovelace, Ada" -> "Ada". */
-export function firstName(name: string): string {
-	const n = name.trim();
-	if (n.includes(",")) return n.split(",")[1]?.trim().split(/\s+/)[0] ?? "";
-	return n.split(/\s+/)[0] ?? "";
-}
-
 // ---------------------------------------------------------------------------
 // Templates: {{field}} and {{field|fallback}}
 // ---------------------------------------------------------------------------
@@ -321,15 +316,6 @@ export function templateFields(template: string): string[] {
 	for (const p of parseTemplate(template))
 		if (p.kind === "field" && !out.includes(p.name)) out.push(p.name);
 	return out;
-}
-
-export function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
 }
 
 export interface RenderResult {

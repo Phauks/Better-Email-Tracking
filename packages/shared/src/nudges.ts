@@ -1,4 +1,5 @@
 import type { Recipient } from "./api";
+import { escapeHtml, firstName } from "./text";
 
 /**
  * Follow-up nudges: the Worker replies in the original thread until someone answers.
@@ -174,25 +175,10 @@ export function stepsFromPolicy(
 	}));
 }
 
-function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
-
-/** First name from a display name, or a capitalised guess from the address local part. */
+/** First name from a recipient's display name ("" when there is none). */
 export function firstNameOf(r: Recipient | undefined): string {
 	const name = r?.name?.trim();
-	if (name) {
-		// "Last, First" → First
-		if (name.includes(","))
-			return name.split(",")[1]?.trim().split(/\s+/)[0] ?? "";
-		return name.split(/\s+/)[0] ?? "";
-	}
-	return "";
+	return name ? firstName(name) : "";
 }
 
 const PLACEHOLDER = /\{\{\s*(firstName|name|email)\s*(?:\|([^}]*))?\}\}/g;
