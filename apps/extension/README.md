@@ -61,6 +61,19 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
   and an event timeline that labels each event's source (Gmail proxy, Apple
   privacy proxy, scanner, direct) and device.
 
+- **Tracked documents.** The file icon in the compose toolbar ("Attach tracked
+  document") uploads a file to your Worker and inserts a link to it. When the email is
+  sent with tracking on, every copy gets its own link, so you see which recipient
+  opened it, how long they spent on each page of a PDF, and whether they downloaded
+  it. You can also upload from the dashboard's **Documents** tab, which lists views
+  per recipient (including who hasn't opened it yet), a reading-time-per-page chart and
+  recent activity. **Preview** there opens your copy without counting a view. Views
+  also show in the popup and as notifications. Limit: 25 MB by default (the Worker's
+  `DOCS_MAX_MB`).
+- **Attachment hint.** Normal Gmail attachments travel inside the email and can't be
+  tracked. When a tracked email has attachments, the extension suggests a tracked
+  document instead, once per email. It never reads attachment contents.
+
 ### The "Track each recipient" tradeoff
 
 To know exactly who opened, the extension has to send separate emails. So:
@@ -86,14 +99,16 @@ src/
     registry.ts     picks an adapter by location.hostname
     gmail/          InboxSDK implementation
   features/         content-script modules: { id, setup(ctx) }, listed in features/index.ts
-    compose-tracking/  individual-send/  own-open/  sent-status/
+    compose-tracking/  individual-send/  own-open/  sent-status/  documents/
   content/          content-script entry; builds the FeatureContext
   background/       service worker: API proxy, feed polling, notifications, badge
   messaging.ts      typed content -> background message union
   api/client.ts     typed Worker client (background and extension pages)
+  api/documents.ts  DocumentsClient: upload, list, detail, preview, delete
   settings.ts       typed chrome.storage.sync settings with defaults
   lib/              pure, unit-tested logic (status badges, feed text, grouping, domains)
   ui/               Svelte 5 pages (popup, options, dashboard), icons.ts, Icon.svelte
+    documents/      dashboard Documents tab, detail and dwell chart
 ```
 
 Content scripts never call the Worker directly. They send typed messages
