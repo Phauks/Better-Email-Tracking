@@ -1,5 +1,5 @@
 import type { FeedEvent } from "@bet/shared";
-import { ApiClient } from "../api/client";
+import { apiFromSettings } from "../api/client";
 import {
 	type ActivityItem,
 	badgeText,
@@ -10,10 +10,6 @@ import {
 import { describeEvent } from "../lib/feed";
 import { isConfigured, loadSettings, type Settings } from "../settings";
 import { getLocal, setLocal } from "./storage";
-
-export function apiFromSettings(s: Settings): ApiClient {
-	return new ApiClient(s.workerUrl, s.apiToken);
-}
 
 let polling: Promise<void> | null = null;
 

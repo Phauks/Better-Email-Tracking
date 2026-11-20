@@ -2,88 +2,56 @@ import type {
 	MarkSentRequest,
 	RegisterMessageRequest,
 	ThreadStatusResponse,
-	UploadDocumentResponse,
 } from "@bet/shared";
+import type {
+	DocumentBgRequest,
+	DocumentBgResponseMap,
+} from "./features/documents/messages";
 import type {
 	NudgeBgRequest,
 	NudgeBgResponseMap,
 } from "./features/follow-up/messages";
+import { createChannel, type Handlers } from "./lib/channel";
 
 /**
  * Typed messages from content scripts and pages to the background service worker.
  * Content scripts never call the Worker directly: the background holds the token and
- * host permission, and Gmail's page CSP does not apply there.
+ * host permission, and the mail client's page CSP does not apply there.
+ *
+ * A feature with its own background calls declares them in features/<name>/messages.ts
+ * and adds them to the unions below; its handlers live in background/<name>.ts.
+ * (Mail merge uses its own channel, see features/mail-merge/messages.ts.)
  */
-export type BgRequest =
+type CoreBgRequest =
 	| { type: "bet:register"; req: RegisterMessageRequest }
 	| { type: "bet:markSent"; id: string; req: MarkSentRequest }
 	| { type: "bet:threadStatus"; threadIds: string[] }
 	| { type: "bet:ownerViews"; messageIds: string[] }
-	/** File bytes as base64: runtime messages are JSON, so ArrayBuffers can't cross. */
-	| { type: "bet:docUpload"; name: string; mime: string; dataBase64: string }
 	| { type: "bet:pollNow" }
-	| { type: "bet:markSeen" }
-	| NudgeBgRequest;
+	| { type: "bet:markSeen" };
 
-export interface BgResponseMap extends NudgeBgResponseMap {
+interface CoreBgResponseMap {
 	"bet:register": null;
 	"bet:markSent": null;
 	"bet:threadStatus": ThreadStatusResponse;
 	"bet:ownerViews": null;
-	"bet:docUpload": UploadDocumentResponse;
 	"bet:pollNow": null;
 	"bet:markSeen": null;
 }
 
+export type BgRequest = CoreBgRequest | DocumentBgRequest | NudgeBgRequest;
+export interface BgResponseMap
+	extends CoreBgResponseMap,
+		DocumentBgResponseMap,
+		NudgeBgResponseMap {}
+
 export type BgType = BgRequest["type"];
-export type BgRequestOf<T extends BgType> = Extract<BgRequest, { type: T }>;
-export type BgResult<T extends BgType> =
-	| { ok: true; data: BgResponseMap[T] }
-	| { ok: false; error: string };
+export type BgHandlers = Handlers<BgRequest, BgResponseMap>;
 
-export type BgHandlers = {
-	[T in BgType]: (msg: BgRequestOf<T>) => Promise<BgResponseMap[T]>;
-};
+const background = createChannel<BgRequest, BgResponseMap>((type) =>
+	type.startsWith("bet:"),
+);
 
-export function isBgRequest(msg: unknown): msg is BgRequest {
-	return (
-		typeof msg === "object" &&
-		msg !== null &&
-		typeof (msg as { type?: unknown }).type === "string" &&
-		(msg as { type: string }).type.startsWith("bet:")
-	);
-}
-
-/** Sends a request to the background and unwraps the result (throws on error). */
-export async function callBackground<T extends BgType>(
-	msg: BgRequestOf<T>,
-): Promise<BgResponseMap[T]> {
-	const res = (await chrome.runtime.sendMessage(msg)) as
-		| BgResult<T>
-		| undefined;
-	if (!res) throw new Error("No response from background");
-	if (!res.ok) throw new Error(res.error);
-	return res.data;
-}
-
-/**
- * Installs the background listener. Returns true only for our own messages so other
- * listeners (InboxSDK's pageWorld injector) keep working.
- */
-export function listenForBgRequests(handlers: BgHandlers): void {
-	chrome.runtime.onMessage.addListener(
-		(msg: unknown, _sender, sendResponse) => {
-			if (!isBgRequest(msg)) return false;
-			const handler = handlers[msg.type] as (m: BgRequest) => Promise<unknown>;
-			handler(msg).then(
-				(data) => sendResponse({ ok: true, data: data ?? null }),
-				(err: unknown) =>
-					sendResponse({
-						ok: false,
-						error: err instanceof Error ? err.message : String(err),
-					}),
-			);
-			return true;
-		},
-	);
-}
+export const isBgRequest = background.is;
+export const callBackground = background.call;
+export const listenForBgRequests = background.listen;

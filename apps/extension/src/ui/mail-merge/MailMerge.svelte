@@ -13,7 +13,7 @@
 	import { relativeTime } from "../../lib/time";
 	import { isConfigured, loadSettings } from "../../settings";
 	import Icon from "../components/Icon.svelte";
-	import { mergeApi } from "./api";
+	import { pageApi } from "../api";
 	import CampaignBuilder from "./CampaignBuilder.svelte";
 	import CampaignView from "./CampaignView.svelte";
 
@@ -30,7 +30,7 @@
 	async function load() {
 		loading = true;
 		try {
-			campaigns = (await (await mergeApi()).listCampaigns({ limit: 100 })).campaigns;
+			campaigns = (await (await pageApi()).listCampaigns({ limit: 100 })).campaigns;
 			error = "";
 		} catch (err) {
 			error = (err as Error).message;

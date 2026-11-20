@@ -1,10 +1,10 @@
 // InboxSDK's MV3 background half: injects pageWorld.js into Gmail on request.
 import "@inboxsdk/core/background.js";
 import { listenForBgRequests } from "../messaging";
-import { loadSettings } from "../settings";
-import { documentHandlers } from "./documents";
-import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
-import "./mail-merge";
+import { workerApi as api } from "./api";
+import { attachDocumentsAfterRegister, documentHandlers } from "./documents";
+import { markAllSeen, pollFeed, refreshBadge } from "./feed";
+import { startMailMergeBackground } from "./mail-merge";
 import { nudgeHandlers } from "./nudges";
 
 const POLL_ALARM = "bet-poll-feed";
@@ -41,12 +41,10 @@ chrome.notifications.onClicked.addListener((id) => {
 	void chrome.notifications.clear(id);
 });
 
-const api = async () => apiFromSettings(await loadSettings());
-
 listenForBgRequests({
 	"bet:register": async ({ req }) => {
 		await (await api()).registerMessage(req);
-		await documentHandlers.afterRegister(req);
+		await attachDocumentsAfterRegister(req);
 		return null;
 	},
 	"bet:markSent": async ({ id, req }) => {
@@ -61,7 +59,6 @@ listenForBgRequests({
 		await (await api()).ownerViews({ messageIds });
 		return null;
 	},
-	"bet:docUpload": documentHandlers.upload,
 	"bet:pollNow": async () => {
 		await pollFeed();
 		return null;
@@ -70,7 +67,9 @@ listenForBgRequests({
 		await markAllSeen();
 		return null;
 	},
+	...documentHandlers,
 	...nudgeHandlers,
 });
+startMailMergeBackground();
 
 ensureAlarm();

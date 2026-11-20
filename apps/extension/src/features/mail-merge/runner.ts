@@ -7,7 +7,7 @@ import {
 	renderMessage,
 	type UpdateCampaignRequest,
 } from "@bet/shared";
-import type { ResultOutcome } from "../../api/campaigns";
+import type { ResultOutcome } from "../../api/client";
 import {
 	INTERRUPTED_ERROR,
 	leaseTtlMs,

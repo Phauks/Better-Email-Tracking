@@ -1,9 +1,19 @@
 import {
 	API,
+	type AttachDocumentsRequest,
+	CAMPAIGN_API,
+	type CampaignDetail,
+	type CampaignLeaseRequest,
+	type CampaignStatus,
 	type ConnectorKind,
 	type ConnectorStatusResponse,
+	type CreateCampaignRequest,
 	type CreateNudgeRequest,
+	DOCUMENT_API,
+	type DocumentDetail,
 	type FeedResponse,
+	type ListCampaignsResponse,
+	type ListDocumentsResponse,
 	type ListMessagesResponse,
 	type ListNudgesResponse,
 	type MarkSentRequest,
@@ -12,61 +22,98 @@ import {
 	type NudgeResponse,
 	type NudgeState,
 	type OwnerViewRequest,
+	type RecipientResultRequest,
+	type RecipientResultResponse,
 	type RegisterMessageRequest,
 	type StartConnectorResponse,
 	type ThreadStatusRequest,
 	type ThreadStatusResponse,
+	type UpdateCampaignRequest,
 	type UpdateNudgeRequest,
+	type UploadDocumentResponse,
 } from "@bet/shared";
 
 export class ApiError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
+		/** Machine-readable reason from the Worker's `{ error, code }` body, if any. */
+		readonly code?: string,
 	) {
 		super(message);
 		this.name = "ApiError";
 	}
 }
 
-/** Typed client for the tracking Worker. Used by the background worker and extension pages. */
+type Method = "GET" | "POST" | "PATCH" | "DELETE";
+
+interface SendOptions {
+	/** JSON-encoded unless `raw` is set. */
+	body?: unknown;
+	/** Send the body as-is with this content type (uploads). */
+	raw?: { body: BodyInit; contentType: string };
+	auth?: boolean;
+}
+
+export type ResultOutcome =
+	| RecipientResultResponse
+	| { ok: false; conflict: true; error: string };
+
+/**
+ * Typed client for the tracking Worker, one section per module. Used by the background
+ * worker and extension pages; content scripts go through the background instead (see
+ * messaging.ts). To add a feature's endpoints, add a section here.
+ */
 export class ApiClient {
 	constructor(
-		protected readonly baseUrl: string,
-		protected readonly token: string,
-		protected readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
+		private readonly baseUrl: string,
+		private readonly token: string,
+		private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
 	) {}
 
-	protected async request<T>(
-		method: "GET" | "POST" | "PATCH" | "DELETE",
+	/** Sends a request and returns the response, throwing ApiError on network or HTTP errors. */
+	private async send(
+		method: Method,
 		path: string,
-		body?: unknown,
-		auth = true,
-	): Promise<T> {
+		opts: SendOptions = {},
+	): Promise<Response> {
 		if (!this.baseUrl) throw new ApiError("Worker URL is not set", 0);
 		const headers: Record<string, string> = { Accept: "application/json" };
-		if (auth) headers.Authorization = `Bearer ${this.token}`;
-		if (body !== undefined) headers["Content-Type"] = "application/json";
+		if (opts.auth !== false) headers.Authorization = `Bearer ${this.token}`;
+		let body: BodyInit | undefined;
+		if (opts.raw) {
+			headers["Content-Type"] = opts.raw.contentType;
+			body = opts.raw.body;
+		} else if (opts.body !== undefined) {
+			headers["Content-Type"] = "application/json";
+			body = JSON.stringify(opts.body);
+		}
 		let res: Response;
 		try {
 			res = await this.fetchImpl(`${this.baseUrl}${path}`, {
 				method,
 				headers,
-				body: body === undefined ? undefined : JSON.stringify(body),
+				...(body !== undefined ? { body } : {}),
 			});
 		} catch (err) {
 			throw new ApiError(`Network error: ${(err as Error).message}`, 0);
 		}
-		if (!res.ok) {
-			const text = await res.text().catch(() => "");
-			throw new ApiError(
-				`${method} ${path} failed: ${res.status} ${text.slice(0, 200)}`.trim(),
-				res.status,
-			);
-		}
+		if (!res.ok) throw await errorFrom(res, method, path);
+		return res;
+	}
+
+	private async request<T>(
+		method: Method,
+		path: string,
+		body?: unknown,
+		auth = true,
+	): Promise<T> {
+		const res = await this.send(method, path, { body, auth });
 		const type = res.headers.get("content-type") ?? "";
 		return (type.includes("json") ? await res.json() : undefined) as T;
 	}
+
+	// Core message tracking
 
 	health(): Promise<unknown> {
 		return this.request("GET", API.health, undefined, false);
@@ -96,7 +143,90 @@ export class ApiClient {
 		return this.request("POST", API.ownerViews, req);
 	}
 
+	// Tracked documents
+
+	listDocuments(): Promise<ListDocumentsResponse> {
+		return this.request("GET", DOCUMENT_API.documents);
+	}
+	getDocument(id: string): Promise<DocumentDetail> {
+		return this.request("GET", DOCUMENT_API.document(id));
+	}
+	deleteDocument(id: string): Promise<void> {
+		return this.request("DELETE", DOCUMENT_API.document(id));
+	}
+	attachDocuments(req: AttachDocumentsRequest): Promise<void> {
+		return this.request("POST", DOCUMENT_API.attach, req);
+	}
+	/** Raw bytes upload; the name travels in the query string. */
+	async uploadDocument(
+		name: string,
+		mime: string,
+		data: Blob | ArrayBuffer | Uint8Array<ArrayBuffer>,
+	): Promise<UploadDocumentResponse> {
+		const path = `${DOCUMENT_API.documents}?name=${encodeURIComponent(name)}`;
+		const res = await this.send("POST", path, {
+			raw: { body: data, contentType: mime || "application/octet-stream" },
+		});
+		return (await res.json()) as UploadDocumentResponse;
+	}
+	/** The file through the authenticated preview route: never counted as a view. */
+	async previewDocument(id: string): Promise<Blob> {
+		return (await this.send("GET", DOCUMENT_API.file(id))).blob();
+	}
+
+	// Mail merge campaigns
+
+	listCampaigns(
+		opts: { status?: CampaignStatus; limit?: number } = {},
+	): Promise<ListCampaignsResponse> {
+		return this.request("GET", `${CAMPAIGN_API.campaigns}${query(opts)}`);
+	}
+	getCampaign(id: string): Promise<CampaignDetail> {
+		return this.request("GET", CAMPAIGN_API.campaign(id));
+	}
+	createCampaign(req: CreateCampaignRequest): Promise<CampaignDetail> {
+		return this.request("POST", CAMPAIGN_API.campaigns, req);
+	}
+	updateCampaign(
+		id: string,
+		req: UpdateCampaignRequest,
+	): Promise<CampaignDetail> {
+		return this.request("PATCH", CAMPAIGN_API.campaign(id), req);
+	}
+	deleteCampaign(id: string): Promise<void> {
+		return this.request("DELETE", CAMPAIGN_API.campaign(id));
+	}
+	/** False when another sender holds the lease or the campaign is not sending. */
+	async leaseCampaign(id: string, req: CampaignLeaseRequest): Promise<boolean> {
+		try {
+			await this.request("POST", CAMPAIGN_API.lease(id), req);
+			return true;
+		} catch (err) {
+			if (err instanceof ApiError && err.status === 409) return false;
+			throw err;
+		}
+	}
+	/** A 409 (recipient or campaign changed state meanwhile) is returned, not thrown. */
+	async recipientResult(
+		id: string,
+		email: string,
+		req: RecipientResultRequest,
+	): Promise<ResultOutcome> {
+		try {
+			return await this.request(
+				"POST",
+				CAMPAIGN_API.recipientResult(id, email),
+				req,
+			);
+		} catch (err) {
+			if (err instanceof ApiError && err.status === 409)
+				return { ok: false, conflict: true, error: err.message };
+			throw err;
+		}
+	}
+
 	// Follow-up nudges and mailbox connectors
+
 	createNudge(req: CreateNudgeRequest): Promise<NudgeResponse> {
 		return this.request("POST", NUDGE_API.nudges, req);
 	}
@@ -120,6 +250,35 @@ export class ApiClient {
 	disconnectConnector(kind: ConnectorKind): Promise<{ revoked: boolean }> {
 		return this.request("DELETE", NUDGE_API.connector(kind));
 	}
+}
+
+/** A client for the stored settings' Worker. */
+export function apiFromSettings(s: {
+	workerUrl: string;
+	apiToken: string;
+}): ApiClient {
+	return new ApiClient(s.workerUrl, s.apiToken);
+}
+
+/** ApiError with the Worker's `{ error, code }` message when the body has one. */
+async function errorFrom(
+	res: Response,
+	method: Method,
+	path: string,
+): Promise<ApiError> {
+	const text = await res.text().catch(() => "");
+	let message = text.slice(0, 200);
+	let code: string | undefined;
+	try {
+		const body = JSON.parse(text) as { error?: unknown; code?: unknown };
+		if (typeof body.error === "string") message = body.error;
+		if (typeof body.code === "string") code = body.code;
+	} catch {}
+	return new ApiError(
+		`${method} ${path.split("?")[0]} failed: ${res.status} ${message}`.trim(),
+		res.status,
+		code,
+	);
 }
 
 function query(params: Record<string, string | number | undefined>): string {

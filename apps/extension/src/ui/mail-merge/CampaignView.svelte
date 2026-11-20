@@ -5,7 +5,8 @@
 	import { plural, relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
-	import { dispatchToMailTabs, mergeApi, NO_MAIL_TAB } from "./api";
+	import { pageApi } from "../api";
+	import { dispatchToMailTabs, NO_MAIL_TAB } from "./api";
 
 	let {
 		id,
@@ -25,7 +26,7 @@
 
 	async function load() {
 		try {
-			detail = await (await mergeApi()).getCampaign(id);
+			detail = await (await pageApi()).getCampaign(id);
 			error = "";
 		} catch (err) {
 			error = (err as Error).message;
@@ -60,7 +61,7 @@
 		busy = true;
 		notice = "";
 		try {
-			detail = await (await mergeApi()).updateCampaign(id, { action });
+			detail = await (await pageApi()).updateCampaign(id, { action });
 			if (detail.status === "sending") {
 				const tabs = await dispatchToMailTabs();
 				notice = tabs > 0 ? "Sending from your open Gmail tab." : NO_MAIL_TAB;
@@ -75,7 +76,7 @@
 
 	async function remove() {
 		if (!confirm("Delete this campaign? Tracking data for emails already sent is kept.")) return;
-		await (await mergeApi()).deleteCampaign(id);
+		await (await pageApi()).deleteCampaign(id);
 		onChanged();
 	}
 

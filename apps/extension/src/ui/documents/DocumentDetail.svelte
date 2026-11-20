@@ -5,7 +5,7 @@
 	import { documentRecipientLabel, formatDuration } from "../../lib/documents";
 	import { relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
-	import { documentsApi } from "./api";
+	import { pageApi } from "../api";
 	import DwellChart from "./DwellChart.svelte";
 
 	let { id, ondeleted }: { id: string; ondeleted: () => void } = $props();
@@ -15,7 +15,7 @@
 	let copied = $state(false);
 
 	onMount(() => {
-		void documentsApi()
+		void pageApi()
 			.then((api) => api.getDocument(id))
 			.then((d) => {
 				detail = d;
@@ -28,7 +28,7 @@
 	async function preview() {
 		busy = true;
 		try {
-			const blob = await (await documentsApi()).previewDocument(id);
+			const blob = await (await pageApi()).previewDocument(id);
 			const url = URL.createObjectURL(blob);
 			window.open(url, "_blank", "noopener");
 			setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -50,7 +50,7 @@
 		if (!detail || !confirm(`Delete “${detail.name}”? Its links stop working and its view history is removed.`)) return;
 		busy = true;
 		try {
-			await (await documentsApi()).deleteDocument(id);
+			await (await pageApi()).deleteDocument(id);
 			ondeleted();
 		} catch (err) {
 			error = (err as Error).message;

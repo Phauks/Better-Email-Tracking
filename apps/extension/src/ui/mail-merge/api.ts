@@ -1,11 +1,4 @@
-import { type CampaignClient, campaignClient } from "../../api/campaigns";
 import { callMerge } from "../../features/mail-merge/messages";
-import { loadSettings } from "../../settings";
-
-/** Extension pages call the Worker directly (they have the host permission). */
-export async function mergeApi(): Promise<CampaignClient> {
-	return campaignClient(await loadSettings());
-}
 
 /** Wakes open mail tabs so one starts sending. Resolves to how many answered. */
 export async function dispatchToMailTabs(): Promise<number> {

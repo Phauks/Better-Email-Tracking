@@ -6,7 +6,8 @@ import type {
 	RecipientResultRequest,
 	UpdateCampaignRequest,
 } from "@bet/shared";
-import type { ResultOutcome } from "../../api/campaigns";
+import type { ResultOutcome } from "../../api/client";
+import { createChannel, type Handlers } from "../../lib/channel";
 
 /**
  * Mail merge messaging, kept apart from the core "bet:" union so the feature stays
@@ -38,13 +39,7 @@ export interface MergeResponseMap {
 }
 
 export type MergeType = MergeRequest["type"];
-export type MergeRequestOf<T extends MergeType> = Extract<
-	MergeRequest,
-	{ type: T }
->;
-export type MergeHandlers = {
-	[T in MergeType]: (msg: MergeRequestOf<T>) => Promise<MergeResponseMap[T]>;
-};
+export type MergeHandlers = Handlers<MergeRequest, MergeResponseMap>;
 
 export type MergeTabMessage = { type: "bet-merge:wake" };
 export interface WakeResponse {
@@ -52,56 +47,22 @@ export interface WakeResponse {
 	provider: string;
 }
 
-type Result<T> = { ok: true; data: T } | { ok: false; error: string };
+const WAKE = "bet-merge:wake";
 
-const PREFIX = "bet-merge:";
+const merge = createChannel<MergeRequest, MergeResponseMap>(
+	(type) => type.startsWith("bet-merge:") && type !== WAKE,
+);
 
-export function isMergeRequest(msg: unknown): msg is MergeRequest {
-	return (
-		typeof msg === "object" &&
-		msg !== null &&
-		typeof (msg as { type?: unknown }).type === "string" &&
-		(msg as { type: string }).type.startsWith(PREFIX) &&
-		(msg as { type: string }).type !== "bet-merge:wake"
-	);
-}
+export const isMergeRequest = merge.is;
+export const callMerge = merge.call;
+/** Background side. */
+export const listenForMergeRequests = merge.listen;
 
+/** Background -> mail tab: start sending if a campaign is waiting. */
 export function isWakeMessage(msg: unknown): msg is MergeTabMessage {
 	return (
 		typeof msg === "object" &&
 		msg !== null &&
-		(msg as { type?: unknown }).type === "bet-merge:wake"
-	);
-}
-
-export async function callMerge<T extends MergeType>(
-	msg: MergeRequestOf<T>,
-): Promise<MergeResponseMap[T]> {
-	const res = (await chrome.runtime.sendMessage(msg)) as
-		| Result<MergeResponseMap[T]>
-		| undefined;
-	if (!res) throw new Error("No response from background");
-	if (!res.ok) throw new Error(res.error);
-	return res.data;
-}
-
-/** Background side. Returns true only for our messages so other listeners keep working. */
-export function listenForMergeRequests(handlers: MergeHandlers): void {
-	chrome.runtime.onMessage.addListener(
-		(msg: unknown, _sender, sendResponse) => {
-			if (!isMergeRequest(msg)) return false;
-			const handler = handlers[msg.type] as (
-				m: MergeRequest,
-			) => Promise<unknown>;
-			handler(msg).then(
-				(data) => sendResponse({ ok: true, data: data ?? null }),
-				(err: unknown) =>
-					sendResponse({
-						ok: false,
-						error: err instanceof Error ? err.message : String(err),
-					}),
-			);
-			return true;
-		},
+		(msg as { type?: unknown }).type === WAKE
 	);
 }

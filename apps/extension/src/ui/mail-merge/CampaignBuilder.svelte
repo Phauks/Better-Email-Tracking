@@ -27,7 +27,8 @@
 	import { plural } from "../../lib/time";
 	import { loadSettings } from "../../settings";
 	import Icon from "../components/Icon.svelte";
-	import { dispatchToMailTabs, mergeApi, NO_MAIL_TAB } from "./api";
+	import { pageApi } from "../api";
+	import { dispatchToMailTabs, NO_MAIL_TAB } from "./api";
 
 	let {
 		seed,
@@ -167,7 +168,7 @@
 				settings: { ...settings },
 				start,
 			});
-			const api = await mergeApi();
+			const api = await pageApi();
 			await api.createCampaign(req);
 			let notice = start ? "Campaign started." : "Draft saved.";
 			if (start) {

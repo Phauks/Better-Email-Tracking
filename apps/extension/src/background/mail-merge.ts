@@ -1,12 +1,9 @@
-import { campaignClient } from "../api/campaigns";
 import {
 	listenForMergeRequests,
 	type MergeTabMessage,
 	type WakeResponse,
 } from "../features/mail-merge/messages";
-import { loadSettings } from "../settings";
-
-const api = async () => campaignClient(await loadSettings());
+import { workerApi as api } from "./api";
 
 /** Mail client tabs: whatever the content script is injected into (provider-neutral). */
 function mailTabPatterns(): string[] {
@@ -39,15 +36,18 @@ async function wakeMailTabs(): Promise<number> {
 	return answers.filter(Boolean).length;
 }
 
-listenForMergeRequests({
-	"bet-merge:list": async ({ status }) =>
-		(await api()).listCampaigns(status ? { status } : {}),
-	"bet-merge:get": async ({ id }) => (await api()).getCampaign(id),
-	"bet-merge:lease": async ({ id, req }) =>
-		(await api()).leaseCampaign(id, req),
-	"bet-merge:result": async ({ id, email, req }) =>
-		(await api()).recipientResult(id, email, req),
-	"bet-merge:update": async ({ id, req }) =>
-		(await api()).updateCampaign(id, req),
-	"bet-merge:dispatch": async () => ({ tabs: await wakeMailTabs() }),
-});
+/** Background side of mail merge: campaign API proxy for mail tabs, and waking them. */
+export function startMailMergeBackground(): void {
+	listenForMergeRequests({
+		"bet-merge:list": async ({ status }) =>
+			(await api()).listCampaigns(status ? { status } : {}),
+		"bet-merge:get": async ({ id }) => (await api()).getCampaign(id),
+		"bet-merge:lease": async ({ id, req }) =>
+			(await api()).leaseCampaign(id, req),
+		"bet-merge:result": async ({ id, email, req }) =>
+			(await api()).recipientResult(id, email, req),
+		"bet-merge:update": async ({ id, req }) =>
+			(await api()).updateCampaign(id, req),
+		"bet-merge:dispatch": async () => ({ tabs: await wakeMailTabs() }),
+	});
+}

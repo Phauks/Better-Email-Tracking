@@ -1,6 +1,6 @@
 import { instrumentHtml, trackingUrls } from "@bet/shared";
 import { describe, expect, it } from "vitest";
-import { DocumentsClient } from "../api/documents";
+import { ApiClient } from "../api/client";
 import {
 	base64ToBytes,
 	bytesToBase64,
@@ -107,7 +107,7 @@ describe("base64 transfer", () => {
 	});
 });
 
-describe("DocumentsClient", () => {
+describe("ApiClient uploads", () => {
 	it("uploads raw bytes with the name in the query and surfaces server errors", async () => {
 		const calls: { url: string; init: RequestInit }[] = [];
 		const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -124,7 +124,7 @@ describe("DocumentsClient", () => {
 				},
 			);
 		}) as unknown as typeof fetch;
-		const api = new DocumentsClient("https://t.example.com", "tok", fetchImpl);
+		const api = new ApiClient("https://t.example.com", "tok", fetchImpl);
 		const res = await api.uploadDocument(
 			"a b.pdf",
 			"application/pdf",

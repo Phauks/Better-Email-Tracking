@@ -4,7 +4,7 @@
 	import { documentIcon, formatDuration } from "../../lib/documents";
 	import { plural, relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
-	import { documentsApi } from "./api";
+	import { pageApi } from "../api";
 	import DocumentDetail from "./DocumentDetail.svelte";
 
 	let documents = $state<DocumentSummary[]>([]);
@@ -18,7 +18,7 @@
 		loading = true;
 		error = "";
 		try {
-			documents = (await (await documentsApi()).listDocuments()).documents;
+			documents = (await (await pageApi()).listDocuments()).documents;
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
@@ -38,7 +38,7 @@
 		uploading = file.name;
 		error = "";
 		try {
-			const doc = await (await documentsApi()).uploadDocument(file.name, file.type, file);
+			const doc = await (await pageApi()).uploadDocument(file.name, file.type, file);
 			await load();
 			expanded = doc.id;
 		} catch (err) {
