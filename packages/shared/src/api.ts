@@ -87,6 +87,10 @@ export interface FeedResponse {
 	cursor: number;
 }
 
+export interface ThreadStatusRequest {
+	threadIds: string[];
+}
+
 export interface ThreadStatusResponse {
 	/** Keyed by providerThreadId. */
 	threads: Record<string, ThreadStatus>;
