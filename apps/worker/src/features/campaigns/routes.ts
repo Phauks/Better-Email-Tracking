@@ -376,7 +376,12 @@ export function createCampaignRoutes(deps: CampaignsDeps): Hono<AppEnv> {
 	routes.delete("/:id", async (c) => {
 		const id = c.req.param("id");
 		if (!isValidId(id)) return c.json({ error: "invalid id" }, 400);
-		if (!(await cs(c).delete(id))) return c.json({ error: "not found" }, 404);
+		const campaign = await cs(c).get(id);
+		if (!campaign || !(await cs(c).delete(id)))
+			return c.json({ error: "not found" }, 404);
+		// Deleting a campaign must not leave its follow-ups sending.
+		if (campaign.followUp)
+			await followUps(c).updateGroup(id, "cancel", c.var.now());
 		return c.json({ ok: true });
 	});
 

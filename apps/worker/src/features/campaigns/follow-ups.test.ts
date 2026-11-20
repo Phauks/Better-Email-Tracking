@@ -229,6 +229,21 @@ describe("campaign follow-ups", () => {
 		).toBe("replied");
 	});
 
+	it("cancels a campaign's follow-ups when the campaign is deleted", async () => {
+		const t = followUpSetup();
+		await t.connect();
+		await t.create();
+		await t.sendTo("ada@x.io", M1);
+		const res = await t.s.request(`/api/campaigns/${CID}`, {
+			method: "DELETE",
+		});
+		expect(res.status).toBe(200);
+		const [seq] = [...t.nudges.sequences.values()];
+		expect(seq?.state).toBe("cancelled");
+		await t.run(T0 + 3 * DAY + 1000);
+		expect(t.mailbox.sent).toHaveLength(0);
+	});
+
 	it("uses the reported thread id when markSent lost it, and the reconcile path once", async () => {
 		const t = followUpSetup();
 		await t.connect();
