@@ -1,5 +1,9 @@
 import {
 	type CampaignDetail,
+	type CampaignFollowUp,
+	type CampaignFollowUpAction,
+	type CampaignFollowUpPolicy,
+	type CampaignFollowUpStats,
 	type CampaignRecipient,
 	type CampaignRecipientInput,
 	type CampaignRecipientState,
@@ -10,6 +14,7 @@ import {
 	type CreateCampaignRequest,
 	type MergeRecipient,
 	type MissingPolicy,
+	type NudgeState,
 	type Provider,
 	previewMerge,
 	type RowIssue,
@@ -124,14 +129,18 @@ export interface BuilderSeed {
 	recipients: MergeRecipient[];
 }
 
-export function followUpSeed(c: CampaignDetail): BuilderSeed {
+/** A draft campaign to the non-openers among `recipients` (all sent ones, every page). */
+export function followUpSeed(
+	c: Pick<CampaignDetail, "name" | "subjectTemplate">,
+	recipients: CampaignRecipient[],
+): BuilderSeed {
 	return {
 		name: `Follow-up: ${c.name}`,
 		subject: /^re:/i.test(c.subjectTemplate)
 			? c.subjectTemplate
 			: `Re: ${c.subjectTemplate}`,
 		body: "",
-		recipients: nonOpeners(c.recipients),
+		recipients: nonOpeners(recipients),
 	};
 }
 
@@ -164,6 +173,7 @@ export function buildCreateRequest(args: {
 	recipients: MergeRecipient[];
 	settings: CampaignSettings;
 	start: boolean;
+	followUp?: CampaignFollowUpPolicy;
 }): CreateCampaignRequest {
 	const policy: MissingPolicy = args.settings.missingPolicy;
 	const rows = previewMerge(
@@ -180,7 +190,7 @@ export function buildCreateRequest(args: {
 		if (row.blocked) r.skipReason = `Missing: ${row.missing.join(", ")}`;
 		return r;
 	});
-	return {
+	const req: CreateCampaignRequest = {
 		id: args.id,
 		name: args.name.trim() || "Untitled campaign",
 		provider: args.provider,
@@ -190,6 +200,42 @@ export function buildCreateRequest(args: {
 		status: args.start ? "sending" : "draft",
 		recipients,
 	};
+	if (args.followUp) req.followUp = args.followUp;
+	return req;
+}
+
+/** Sent copies nobody (human) has opened: what "Follow up with non-openers" targets. */
+export function nonOpenerCount(stats: CampaignStats): number {
+	return stats.unopened + stats.machineOnly;
+}
+
+/** "5 scheduled · 2 paused · 3 replied · 7 nudges sent" */
+export function followUpStatsLine(s: CampaignFollowUpStats): string {
+	if (s.sequences === 0) return "No follow-ups started yet";
+	const parts: string[] = [];
+	const order: [NudgeState, string][] = [
+		["active", "scheduled"],
+		["paused", "paused"],
+		["replied", "replied"],
+		["opened", "stopped on open"],
+		["done", "finished"],
+		["cancelled", "cancelled"],
+		["failed", "failed"],
+	];
+	for (const [state, label] of order) {
+		const n = s.states[state];
+		if (n) parts.push(`${n} ${label}`);
+	}
+	parts.push(`${s.nudgesSent} ${s.nudgesSent === 1 ? "nudge" : "nudges"} sent`);
+	return parts.join(" · ");
+}
+
+/** Bulk follow-up actions that make sense for the campaign's follow-up state. */
+export function followUpActions(
+	f: Pick<CampaignFollowUp, "state"> | undefined,
+): CampaignFollowUpAction[] {
+	if (!f || f.state === "cancelled") return [];
+	return f.state === "paused" ? ["resume", "cancel"] : ["pause", "cancel"];
 }
 
 /** Rough duration of a run, in minutes, using the average delay. */

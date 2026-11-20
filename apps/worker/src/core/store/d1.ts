@@ -4,8 +4,11 @@ import type {
 	IgnoreReason,
 	Recipient,
 } from "@bet/shared";
-import { chunks, placeholders } from "../../lib/d1";
+import { chunks, likeContains, placeholders } from "../../lib/d1";
+import { HUMAN_SOURCES } from "../summary";
 import type {
+	Counts,
+	GroupEngagement,
 	ListQuery,
 	NewEvent,
 	NewMessage,
@@ -23,6 +26,7 @@ interface MessageRow {
 	recipients: string;
 	mode: string;
 	group_id: string | null;
+	kind?: string;
 	track_opens: number;
 	track_links: number;
 	created_at: number;
@@ -67,11 +71,55 @@ function toMessage(row: MessageRow): StoredMessage {
 		createdAt: row.created_at,
 	};
 	if (row.group_id) msg.groupId = row.group_id;
+	if (row.kind === "nudge") msg.kind = "nudge";
 	if (row.sent_at !== null) msg.sentAt = row.sent_at;
 	if (row.provider_thread_id) msg.providerThreadId = row.provider_thread_id;
 	if (row.provider_message_id) msg.providerMessageId = row.provider_message_id;
 	return msg;
 }
+
+const HUMAN = HUMAN_SOURCES.map((s) => `'${s}'`).join(", ");
+
+/**
+ * Per-message aggregates over `events` rows with ignored IS NULL; the SQL twin of
+ * countEvents in core/summary.ts (a test keeps the two equivalent).
+ */
+export const COUNT_COLUMNS = `
+	COALESCE(SUM(type = 'open' AND source IN (${HUMAN})), 0) AS opens,
+	COALESCE(SUM(type = 'open' AND source NOT IN (${HUMAN})), 0) AS machine_opens,
+	COALESCE(SUM(type = 'click' AND source <> 'scanner'), 0) AS clicks,
+	MIN(CASE WHEN type = 'open' AND source IN (${HUMAN}) THEN at END) AS first_open_at,
+	MAX(CASE WHEN type = 'open' OR (type = 'click' AND source <> 'scanner') THEN at END) AS last_event_at,
+	COALESCE(MAX(type = 'reply'), 0) AS replied`;
+
+interface CountRow {
+	opens: number;
+	machine_opens: number;
+	clicks: number;
+	first_open_at: number | null;
+	last_event_at: number | null;
+	replied: number;
+}
+
+function toCounts(r: CountRow): Counts {
+	const c: Counts = {
+		opens: r.opens,
+		machineOpens: r.machine_opens,
+		clicks: r.clicks,
+	};
+	if (r.first_open_at !== null) c.firstOpenAt = r.first_open_at;
+	if (r.last_event_at !== null) c.lastEventAt = r.last_event_at;
+	if (r.replied) c.replied = true;
+	return c;
+}
+
+/** statusFromCounts of the message `m`, as a correlated subquery. */
+const STATUS_OF_M = `(SELECT CASE
+	WHEN SUM(e.type = 'click' AND e.source <> 'scanner') > 0 THEN 'clicked'
+	WHEN SUM(e.type = 'open' AND e.source IN (${HUMAN})) > 0 THEN 'opened'
+	WHEN SUM(e.type = 'open') > 0 THEN 'machine_only'
+	ELSE 'unopened' END
+	FROM events e WHERE e.message_id = m.id AND e.ignored IS NULL)`;
 
 function toEvent(row: EventRow): StoredEvent {
 	const ev: StoredEvent = {
@@ -97,11 +145,11 @@ export class D1Store implements Store {
 	async upsertMessage(msg: NewMessage): Promise<void> {
 		const upsert = this.db
 			.prepare(
-				`INSERT INTO messages (id, provider, subject, recipients, mode, group_id, track_opens, track_links, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`INSERT INTO messages (id, provider, subject, recipients, mode, group_id, kind, track_opens, track_links, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				 ON CONFLICT(id) DO UPDATE SET
 				   provider = excluded.provider, subject = excluded.subject, recipients = excluded.recipients,
-				   mode = excluded.mode, group_id = excluded.group_id,
+				   mode = excluded.mode, group_id = excluded.group_id, kind = excluded.kind,
 				   track_opens = excluded.track_opens, track_links = excluded.track_links`,
 			)
 			.bind(
@@ -111,6 +159,7 @@ export class D1Store implements Store {
 				JSON.stringify(msg.recipients),
 				msg.mode,
 				msg.groupId ?? null,
+				msg.kind ?? "email",
 				msg.trackOpens ? 1 : 0,
 				msg.trackLinks ? 1 : 0,
 				msg.createdAt,
@@ -170,24 +219,29 @@ export class D1Store implements Store {
 	}
 
 	async listMessages(query: ListQuery): Promise<StoredMessage[]> {
-		const where: string[] = [];
+		const where = ["m.kind = 'email'"];
 		const args: unknown[] = [];
-		if (query.before !== undefined) {
-			where.push("created_at < ?");
-			args.push(query.before);
+		if (query.after) {
+			where.push("(m.created_at, m.id) < (?, ?)");
+			args.push(query.after.createdAt, query.after.id);
 		}
 		if (query.groupId) {
-			where.push("group_id = ?");
+			where.push("m.group_id = ?");
 			args.push(query.groupId);
 		}
 		if (query.q) {
-			const like = `%${query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+			const like = likeContains(query.q);
 			where.push(
-				"(subject LIKE ? ESCAPE '\\' OR recipients LIKE ? ESCAPE '\\')",
+				"(m.subject LIKE ? ESCAPE '\\' OR m.recipients LIKE ? ESCAPE '\\')",
 			);
 			args.push(like, like);
 		}
-		const sql = `SELECT * FROM messages ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ?`;
+		if (query.status) {
+			// Walks the list index newest first and stops after `limit` matches.
+			where.push(`${STATUS_OF_M} = ?`);
+			args.push(query.status);
+		}
+		const sql = `SELECT m.* FROM messages m WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC, m.id DESC LIMIT ?`;
 		const { results } = await this.db
 			.prepare(sql)
 			.bind(...args, query.limit)
@@ -203,8 +257,23 @@ export class D1Store implements Store {
 		return this.messagesWhereIn("provider_thread_id", threadIds);
 	}
 
-	getMessagesByGroupIds(groupIds: string[]): Promise<StoredMessage[]> {
-		return this.messagesWhereIn("group_id", groupIds);
+	async getMessagesByGroupIds(
+		groupIds: string[],
+		limit: number,
+	): Promise<StoredMessage[]> {
+		const out: StoredMessage[] = [];
+		for (const part of chunks([...new Set(groupIds)])) {
+			if (out.length >= limit) break;
+			const { results } = await this.db
+				.prepare(
+					`SELECT * FROM messages WHERE group_id IN (${placeholders(part.length)}) AND kind = 'email'
+					 ORDER BY created_at, id LIMIT ?`,
+				)
+				.bind(...part, limit - out.length)
+				.all<MessageRow>();
+			out.push(...results.map(toMessage));
+		}
+		return out;
 	}
 
 	async deleteMessage(id: string): Promise<boolean> {
@@ -252,6 +321,67 @@ export class D1Store implements Store {
 			out.push(...results.map(toEvent));
 		}
 		return out.sort((a, b) => a.id - b.id);
+	}
+
+	async countsForMessages(ids: string[]): Promise<Map<string, Counts>> {
+		const out = new Map<string, Counts>();
+		for (const part of chunks([...new Set(ids)])) {
+			const { results } = await this.db
+				.prepare(
+					`SELECT message_id, ${COUNT_COLUMNS} FROM events
+					 WHERE message_id IN (${placeholders(part.length)}) AND ignored IS NULL
+					 GROUP BY message_id`,
+				)
+				.bind(...part)
+				.all<CountRow & { message_id: string }>();
+			for (const r of results) out.set(r.message_id, toCounts(r));
+		}
+		return out;
+	}
+
+	async groupEngagement(
+		groupIds: string[],
+	): Promise<Map<string, GroupEngagement>> {
+		const out = new Map<string, GroupEngagement>();
+		for (const part of chunks([...new Set(groupIds)])) {
+			const { results } = await this.db
+				.prepare(
+					`SELECT gid, COUNT(*) AS sent,
+					   SUM(clicks > 0 OR opens > 0) AS opened,
+					   SUM(clicks > 0) AS clicked,
+					   SUM(clicks = 0 AND opens = 0 AND machine > 0) AS machine_only,
+					   SUM(clicks = 0 AND opens = 0 AND machine = 0) AS unopened
+					 FROM (
+					   SELECT m.group_id AS gid,
+					     COALESCE(SUM(e.type = 'open' AND e.source IN (${HUMAN})), 0) AS opens,
+					     COALESCE(SUM(e.type = 'open' AND e.source NOT IN (${HUMAN})), 0) AS machine,
+					     COALESCE(SUM(e.type = 'click' AND e.source <> 'scanner'), 0) AS clicks
+					   FROM messages m
+					   LEFT JOIN events e ON e.message_id = m.id AND e.ignored IS NULL
+					   WHERE m.group_id IN (${placeholders(part.length)}) AND m.kind = 'email'
+					     AND m.sent_at IS NOT NULL
+					   GROUP BY m.id
+					 ) GROUP BY gid`,
+				)
+				.bind(...part)
+				.all<{
+					gid: string;
+					sent: number;
+					opened: number;
+					clicked: number;
+					machine_only: number;
+					unopened: number;
+				}>();
+			for (const r of results)
+				out.set(r.gid, {
+					sent: r.sent,
+					opened: r.opened,
+					clicked: r.clicked,
+					machineOnly: r.machine_only,
+					unopened: r.unopened,
+				});
+		}
+		return out;
 	}
 
 	async getFeedEventsAfter(
@@ -353,7 +483,7 @@ export class D1Store implements Store {
 	}
 
 	private async messagesWhereIn(
-		column: "id" | "provider_thread_id" | "group_id",
+		column: "id" | "provider_thread_id",
 		values: string[],
 	): Promise<StoredMessage[]> {
 		const out: StoredMessage[] = [];

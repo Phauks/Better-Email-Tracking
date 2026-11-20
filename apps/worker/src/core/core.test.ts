@@ -375,7 +375,7 @@ describe("api", () => {
 		).toBe(404);
 	});
 
-	it("lists newest first with before/limit/q, and deletes", async () => {
+	it("lists newest first with cursor/limit/q, and deletes", async () => {
 		const s = setup();
 		for (let i = 0; i < 3; i++) {
 			s.clock.now = T0 + i * SEC;
@@ -391,14 +391,17 @@ describe("api", () => {
 			"Subject 2",
 			"Subject 1",
 		]);
+		expect(list.nextCursor).toBeTruthy();
 		list = (await (
-			await s.request(`/api/messages?before=${T0 + SEC}`)
+			await s.request(`/api/messages?limit=2&cursor=${list.nextCursor}`)
 		).json()) as ListMessagesResponse;
 		expect(list.messages.map((m) => m.subject)).toEqual(["Subject 0"]);
+		expect(list.nextCursor).toBeUndefined();
 		list = (await (
 			await s.request("/api/messages?q=subject%201")
 		).json()) as ListMessagesResponse;
 		expect(list.messages).toHaveLength(1);
+		expect((await s.request("/api/messages?cursor=bogus")).status).toBe(400);
 
 		const del = await s.request("/api/messages/list000000000000000000", {
 			method: "DELETE",
@@ -407,6 +410,72 @@ describe("api", () => {
 		expect(
 			(await s.request("/api/messages/list000000000000000000")).status,
 		).toBe(404);
+	});
+
+	it("pages stably through equal timestamps, filters by status, hides nudges", async () => {
+		const s = setup();
+		s.clock.now = T0;
+		const ids: string[] = [];
+		for (let i = 0; i < 7; i++) {
+			const id = `same0000000000000000${String(i).padStart(2, "0")}`;
+			ids.push(id);
+			await s.register({ id, subject: `S${i}` });
+			await s.markSent(id, T0);
+		}
+		// A nudge the Worker sent is a tracked message too, but never listed.
+		await s.store.upsertMessage({
+			id: "nudge000000000000000001",
+			provider: "gmail",
+			subject: "Re: S0",
+			recipients: [{ email: "a@example.com" }],
+			mode: "shared",
+			kind: "nudge",
+			trackOpens: true,
+			trackLinks: true,
+			links: [],
+			createdAt: T0,
+		});
+		s.clock.now = T0 + 3600 * SEC;
+		await s.open(ids[2] as string);
+		await s.request(`/c/${ids[4]}/0`, { ua: CHROME_UA });
+		await s.open(ids[5] as string, { ua: GOOGLE_PROXY_UA });
+
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = (await (
+				await s.request(
+					`/api/messages?limit=3${cursor ? `&cursor=${cursor}` : ""}`,
+				)
+			).json()) as ListMessagesResponse;
+			expect(page.messages.length).toBeLessThanOrEqual(3);
+			seen.push(...page.messages.map((m) => m.id));
+			cursor = page.nextCursor;
+		} while (cursor);
+		// Same createdAt everywhere: the id breaks the tie, no row twice or missing.
+		expect(seen).toEqual([...ids].reverse());
+
+		const byStatus = async (status: string) =>
+			(
+				(await (
+					await s.request(`/api/messages?status=${status}&limit=1`)
+				).json()) as ListMessagesResponse
+			).messages.map((m) => m.id);
+		expect(await byStatus("clicked")).toEqual([ids[4]]);
+		expect(await byStatus("opened")).toEqual([ids[5]]);
+		expect(await byStatus("unopened")).toEqual([ids[6]]);
+		const opened = (await (
+			await s.request("/api/messages?status=opened")
+		).json()) as ListMessagesResponse;
+		expect(opened.messages.map((m) => m.id)).toEqual([ids[5], ids[2]]);
+		expect(opened.messages[1]?.opens).toBe(1);
+	});
+
+	it("clamps the page size", async () => {
+		const s = setup();
+		await s.register();
+		const res = await s.request("/api/messages?limit=100000");
+		expect(res.status).toBe(200);
 	});
 
 	it("pages the feed with a cursor", async () => {

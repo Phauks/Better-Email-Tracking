@@ -1,11 +1,10 @@
 <script lang="ts">
-	import type { CampaignDetail, CampaignSummary } from "@bet/shared";
+	import type { CampaignSummary } from "@bet/shared";
 	import { onDestroy, onMount } from "svelte";
 	import {
 		type BuilderSeed,
 		CAMPAIGN_STATUS_ICON,
 		CAMPAIGN_STATUS_LABEL,
-		followUpSeed,
 		isActive,
 		progress,
 		statsLine,
@@ -13,36 +12,30 @@
 	import { relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
 	import ListState from "../components/ListState.svelte";
+	import LoadMore from "../components/LoadMore.svelte";
+	import { pageFrom } from "../../lib/paging";
 	import { pageApi } from "../api";
+	import { PagedList } from "../paged.svelte";
 	import CampaignBuilder from "./CampaignBuilder.svelte";
 	import CampaignView from "./CampaignView.svelte";
 
-	let campaigns = $state<CampaignSummary[]>([]);
-	let loading = $state(false);
-	let error = $state("");
+	const list = new PagedList<CampaignSummary>(
+		async (cursor) => pageFrom(await (await pageApi()).listCampaigns(cursor ? { cursor } : {}), "campaigns"),
+		(c) => c.id,
+	);
 	let notice = $state("");
 	let building = $state(false);
 	let seed = $state<BuilderSeed | undefined>(undefined);
 	let expanded = $state<Record<string, boolean>>({});
 	let timer: ReturnType<typeof setInterval> | undefined;
 
-	async function load() {
-		loading = true;
-		try {
-			campaigns = (await (await pageApi()).listCampaigns({ limit: 100 })).campaigns;
-			error = "";
-		} catch (err) {
-			error = (err as Error).message;
-		} finally {
-			loading = false;
-		}
-	}
+	const load = () => list.reload();
 
 	onMount(() => {
 		void load();
-		// Live progress while anything is sending.
+		// Live progress while anything is sending (keeps pages already loaded).
 		timer = setInterval(() => {
-			if (campaigns.some(isActive)) void load();
+			if (list.items.some(isActive)) void list.refresh();
 		}, 5000);
 	});
 	onDestroy(() => clearInterval(timer));
@@ -54,16 +47,12 @@
 		scrollTo({ top: 0 });
 	}
 
-	function followUp(c: CampaignDetail) {
-		newCampaign(followUpSeed(c));
-	}
-
 	function done(id: string, message: string) {
 		building = false;
 		seed = undefined;
 		notice = message;
 		expanded = { [id]: true };
-		void load();
+		void list.refresh();
 	}
 </script>
 
@@ -71,7 +60,7 @@
 	<header>
 		<h1><Icon name="paper-plane-tilt" size={22} /> Mail merge</h1>
 		<div class="tools">
-			<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
+			<button class="btn" onclick={load} disabled={list.loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 			{#if !building}
 				<button class="btn primary" onclick={() => newCampaign()}><Icon name="plus" /> New campaign</button>
 			{/if}
@@ -84,7 +73,7 @@
 			{/key}
 		{/if}
 		{#if notice}<p class="note"><Icon name="paper-plane-tilt" /> {notice}</p>{/if}
-	<ListState {loading} {error} isEmpty={campaigns.length === 0}>
+	<ListState loading={list.loading && !list.loaded} error={list.error} isEmpty={list.items.length === 0}>
 		{#snippet empty()}
 			{#if !building}
 				<div class="empty">
@@ -94,7 +83,7 @@
 			{/if}
 		{/snippet}
 			<ul class="card list">
-				{#each campaigns as c (c.id)}
+				{#each list.items as c (c.id)}
 					{@const p = progress(c.stats)}
 					<li>
 						<button class="row" onclick={() => (expanded[c.id] = !expanded[c.id])} aria-expanded={!!expanded[c.id]}>
@@ -113,11 +102,12 @@
 							<span class="muted small when">{relativeTime(c.lastSentAt ?? c.createdAt)}</span>
 						</button>
 						{#if expanded[c.id]}
-							<CampaignView id={c.id} onChanged={load} onFollowUp={followUp} />
+							<CampaignView id={c.id} onChanged={() => list.refresh()} onDeleted={() => list.remove(c.id)} onFollowUp={newCampaign} />
 						{/if}
 					</li>
 				{/each}
 			</ul>
+			<LoadMore {list} label="More campaigns" />
 	</ListState>
 </section>
 

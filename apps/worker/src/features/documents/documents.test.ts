@@ -1,6 +1,7 @@
 import type {
 	DocumentDetail,
 	FeedResponse,
+	ListDocumentRecipientsResponse,
 	ListDocumentsResponse,
 	ListMessagesResponse,
 	MessageDetail,
@@ -14,6 +15,7 @@ import { modules } from "../../modules";
 import { CHROME_UA, setup, T0 } from "../../test-utils";
 import { createDocumentsModule } from "./index";
 import { MemoryObjectStore } from "./objects";
+import { pdfPageCount } from "./pdf";
 import { MemoryDocumentStore } from "./store/memory";
 import { parseViewerEvents } from "./validate";
 
@@ -38,10 +40,14 @@ function docsSetup(env: Partial<Env> & { DOCS_MAX_MB?: string } = {}) {
 	const s = setup(env as Partial<Env>, makeModules);
 	const docStore = docs.store;
 
-	async function upload(name = "Deck.pdf", type = "application/pdf") {
+	async function upload(
+		name = "Deck.pdf",
+		type = "application/pdf",
+		body: Uint8Array = PDF,
+	) {
 		const res = await s.request(
 			`/api/documents?name=${encodeURIComponent(name)}`,
-			{ method: "POST", body: PDF, headers: { "Content-Type": type } },
+			{ method: "POST", body, headers: { "Content-Type": type } },
 		);
 		expect(res.status).toBe(201);
 		return (await res.json()) as UploadDocumentResponse;
@@ -484,5 +490,132 @@ describe("parseViewerEvents", () => {
 			ok: true,
 			value: { events: [] },
 		});
+	});
+});
+
+/** A minimal PDF whose page tree root says /Count n (with nested dictionaries). */
+function pdfWithPages(n: number): Uint8Array {
+	return new TextEncoder().encode(
+		`%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n` +
+			`2 0 obj\n<< /Type /Pages /Resources << /Font << /F1 5 0 R >> >> /Kids [3 0 R 4 0 R] /Count ${n} >>\nendobj\n` +
+			"3 0 obj\n<< /Type /Pages /Parent 2 0 R /Kids [] /Count 1 >>\nendobj\n%%EOF\n",
+	);
+}
+
+/** The same page tree inside a compressed object stream (PDF 1.5+). */
+async function pdfWithObjectStream(n: number): Promise<Uint8Array> {
+	const objects = new TextEncoder().encode(
+		`2 0 << /Type /Pages /Kids [3 0 R] /Count ${n} >>`,
+	);
+	const deflated = new Uint8Array(
+		await new Response(
+			new Blob([objects])
+				.stream()
+				.pipeThrough(new CompressionStream("deflate")),
+		).arrayBuffer(),
+	);
+	const head = new TextEncoder().encode(
+		`%PDF-1.5\n7 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${deflated.length} >>\nstream\n`,
+	);
+	const tail = new TextEncoder().encode("\nendstream\nendobj\n%%EOF\n");
+	const out = new Uint8Array(head.length + deflated.length + tail.length);
+	out.set(head, 0);
+	out.set(deflated, head.length);
+	out.set(tail, head.length + deflated.length);
+	return out;
+}
+
+describe("page count", () => {
+	it("is read from the PDF at upload, so a viewer can't set it", async () => {
+		expect(await pdfPageCount(pdfWithPages(12).buffer as ArrayBuffer)).toBe(12);
+		expect(
+			await pdfPageCount((await pdfWithObjectStream(7)).buffer as ArrayBuffer),
+		).toBe(7);
+		expect(await pdfPageCount(PDF.buffer as ArrayBuffer)).toBeUndefined();
+
+		const s = docsSetup();
+		const up = await s.upload("Deck.pdf", "application/pdf", pdfWithPages(4));
+		await s.register({ id: MSG });
+		await s.markSent(MSG, T0);
+		s.clock.now = T0 + 120 * SEC;
+		const path = `/d/${up.id}/${MSG}`;
+		const viewId = await s.view(path, { pageCount: 1 }); // bogus report
+		await s.beacon(path, {
+			viewId,
+			events: [
+				{ type: "page", page: 3, dwellMs: 1000 },
+				{ type: "page", page: 5, dwellMs: 1000 }, // beyond the real count
+			],
+		});
+		const d = await s.detail(up.id);
+		expect(d.pageCount).toBe(4);
+		expect(d.pages.map((p) => p.page)).toEqual([3]);
+	});
+});
+
+describe("document pagination", () => {
+	it("pages the list and the per-recipient rows with stable cursors", async () => {
+		const s = docsSetup();
+		const ids: string[] = [];
+		for (let i = 0; i < 5; i++) ids.push((await s.upload(`d${i}.pdf`)).id);
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = (await (
+				await s.request(
+					`/api/documents?limit=2${cursor ? `&cursor=${cursor}` : ""}`,
+				)
+			).json()) as ListDocumentsResponse;
+			expect(page.documents.length).toBeLessThanOrEqual(2);
+			seen.push(...page.documents.map((d) => d.id));
+			cursor = page.nextCursor;
+		} while (cursor);
+		expect([...seen].sort()).toEqual([...ids].sort());
+		expect(new Set(seen).size).toBe(5);
+
+		// One document sent in 7 messages; two of them viewed.
+		const doc = ids[0] as string;
+		const msgs = Array.from(
+			{ length: 7 },
+			(_, i) => `dmsg00000000000000000${i}`,
+		);
+		for (const [i, id] of msgs.entries()) {
+			await s.register({ id, recipients: [{ email: `p${i}@x.io` }] });
+			await s.markSent(id, T0 + i * SEC);
+			await s.request("/api/documents/attach", {
+				json: { messageId: id, documentIds: [doc] },
+			});
+		}
+		s.clock.now = T0 + 600 * SEC;
+		await s.view(`/d/${doc}/${msgs[2]}`);
+		s.clock.now = T0 + 700 * SEC;
+		await s.view(`/d/${doc}/${msgs[5]}`);
+
+		const first = await s.request(`/api/documents/${doc}?limit=3`);
+		const d = (await first.json()) as DocumentDetail;
+		const order = d.recipients.map((r) => r.messageId);
+		let next = d.recipientsNextCursor;
+		while (next) {
+			const page = (await (
+				await s.request(
+					`/api/documents/${doc}/recipients?limit=3&cursor=${next}`,
+				)
+			).json()) as ListDocumentRecipientsResponse;
+			order.push(...page.recipients.map((r) => r.messageId));
+			next = page.nextCursor;
+		}
+		// Viewed first (latest view first), then by most recent send.
+		expect(order).toEqual([
+			msgs[5],
+			msgs[2],
+			msgs[6],
+			msgs[4],
+			msgs[3],
+			msgs[1],
+			msgs[0],
+		]);
+		expect(
+			(await s.request(`/api/documents/${doc}/recipients?cursor=nope`)).status,
+		).toBe(400);
 	});
 });

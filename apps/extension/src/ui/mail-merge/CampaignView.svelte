@@ -1,45 +1,111 @@
 <script lang="ts">
-	import type { CampaignAction, CampaignDetail } from "@bet/shared";
+	import type {
+		CampaignAction,
+		CampaignDetail,
+		CampaignFollowUpAction,
+		CampaignRecipient,
+		CampaignRecipientState,
+		RecipientQuery,
+	} from "@bet/shared";
 	import { onDestroy, onMount } from "svelte";
-	import { campaignActions, isActive, RECIPIENT_STATE_STYLE } from "../../lib/campaigns";
-	import { plural, relativeTime } from "../../lib/time";
+	import {
+		type BuilderSeed,
+		campaignActions,
+		followUpActions,
+		followUpSeed,
+		followUpStatsLine,
+		isActive,
+		nonOpenerCount,
+		RECIPIENT_STATE_STYLE,
+	} from "../../lib/campaigns";
+	import { recipientFollowUpLabel } from "../../lib/nudges";
+	import { fetchAll, type PageResult, pageFrom } from "../../lib/paging";
+	import { dateTime, plural, relativeTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
+	import LoadMore from "../components/LoadMore.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
 	import { pageApi } from "../api";
+	import { PagedList } from "../paged.svelte";
 	import { dispatchToMailTabs, NO_MAIL_TAB, SENDING_FROM_TAB } from "./api";
 
 	let {
 		id,
 		onChanged,
+		onDeleted,
 		onFollowUp,
 	}: {
 		id: string;
 		onChanged: () => void;
-		onFollowUp: (c: CampaignDetail) => void;
+		onDeleted: () => void;
+		onFollowUp: (seed: BuilderSeed) => void;
 	} = $props();
 
 	let detail = $state<CampaignDetail | null>(null);
 	let error = $state("");
 	let notice = $state("");
 	let busy = $state(false);
+	let query = $state("");
+	let filter = $state<"all" | "sent" | "pending" | "failed" | "skipped">("all");
 	let timer: ReturnType<typeof setInterval> | undefined;
 
+	const FILTER_STATES: Record<typeof filter, CampaignRecipientState[] | undefined> = {
+		all: undefined,
+		sent: ["sent"],
+		pending: ["queued", "sending"],
+		failed: ["failed"],
+		skipped: ["skipped"],
+	};
+	const FILTERS: { value: typeof filter; label: string }[] = [
+		{ value: "all", label: "All recipients" },
+		{ value: "sent", label: "Sent" },
+		{ value: "pending", label: "Not sent yet" },
+		{ value: "failed", label: "Failed" },
+		{ value: "skipped", label: "Skipped" },
+	];
+
+	function recipientQuery(cursor?: string): RecipientQuery {
+		const q: RecipientQuery = {};
+		const states = FILTER_STATES[filter];
+		if (states) q.state = states;
+		if (query.trim()) q.q = query.trim();
+		if (cursor) q.cursor = cursor;
+		return q;
+	}
+
+	// The detail carries the first page of recipients (filtered); later pages come from
+	// the recipients route. Filters and search run on the Worker.
+	const recipients = new PagedList<CampaignRecipient>(
+		async (cursor): Promise<PageResult<CampaignRecipient>> => {
+			const api = await pageApi();
+			if (cursor) return pageFrom(await api.listCampaignRecipients(id, recipientQuery(cursor)), "recipients");
+			const d = await api.getCampaign(id, recipientQuery());
+			detail = d;
+			return d.recipientsNextCursor ? { items: d.recipients, nextCursor: d.recipientsNextCursor } : { items: d.recipients };
+		},
+		(r) => r.email,
+	);
+
 	async function load() {
-		try {
-			detail = await (await pageApi()).getCampaign(id);
-			error = "";
-		} catch (err) {
-			error = (err as Error).message;
-		}
+		await recipients.reload();
+		error = recipients.error;
+	}
+
+	let debounce: ReturnType<typeof setTimeout> | undefined;
+	function onSearch() {
+		clearTimeout(debounce);
+		debounce = setTimeout(load, 250);
 	}
 
 	onMount(() => {
 		void load();
 		timer = setInterval(() => {
-			if (detail && isActive(detail)) void load();
+			if (detail && isActive(detail)) void recipients.refresh();
 		}, 5000);
 	});
-	onDestroy(() => clearInterval(timer));
+	onDestroy(() => {
+		clearInterval(timer);
+		clearTimeout(debounce);
+	});
 
 	const LABELS: Record<CampaignAction, string> = {
 		start: "Start sending",
@@ -55,17 +121,28 @@
 		cancel: "prohibit",
 		retry: "arrow-clockwise",
 	} as const;
+	const FOLLOW_UP_LABELS: Record<CampaignFollowUpAction, string> = {
+		pause: "Pause follow-ups",
+		resume: "Resume follow-ups",
+		cancel: "Cancel follow-ups",
+	};
+	const FOLLOW_UP_DONE: Record<CampaignFollowUpAction, string> = {
+		pause: "Paused",
+		resume: "Resumed",
+		cancel: "Cancelled",
+	};
 
 	async function act(action: CampaignAction) {
 		if (action === "cancel" && !confirm("Cancel this campaign? Recipients not sent yet will be skipped.")) return;
 		busy = true;
 		notice = "";
 		try {
-			detail = await (await pageApi()).updateCampaign(id, { action });
-			if (detail.status === "sending") {
+			const updated = await (await pageApi()).updateCampaign(id, { action });
+			if (updated.status === "sending") {
 				const tabs = await dispatchToMailTabs();
 				notice = tabs > 0 ? SENDING_FROM_TAB : NO_MAIL_TAB;
 			}
+			await load();
 			onChanged();
 		} catch (err) {
 			error = (err as Error).message;
@@ -74,15 +151,50 @@
 		}
 	}
 
-	async function remove() {
-		if (!confirm("Delete this campaign? Tracking data for emails already sent is kept.")) return;
-		await (await pageApi()).deleteCampaign(id);
-		onChanged();
+	async function actOnFollowUps(action: CampaignFollowUpAction) {
+		if (action === "cancel" && !confirm("Cancel every follow-up of this campaign? No more nudges will be sent for it.")) return;
+		busy = true;
+		notice = "";
+		try {
+			const res = await (await pageApi()).campaignFollowUps(id, action);
+			notice = `${FOLLOW_UP_DONE[action]} ${plural(res.changed, "follow-up")}.`;
+			await load();
+			onChanged();
+		} catch (err) {
+			error = (err as Error).message;
+		} finally {
+			busy = false;
+		}
 	}
 
-	const nonOpenerCount = $derived(
-		detail?.recipients.filter((r) => r.state === "sent" && (r.status === "unopened" || r.status === "machine_only")).length ?? 0,
-	);
+	async function followUpNonOpeners() {
+		if (!detail) return;
+		busy = true;
+		try {
+			// Every sent recipient, across pages, so the new draft reaches all non-openers.
+			const api = await pageApi();
+			const sent = await fetchAll(async (cursor) =>
+				pageFrom(await api.listCampaignRecipients(id, { state: ["sent"], limit: 500, ...(cursor ? { cursor } : {}) }), "recipients"),
+			);
+			onFollowUp(followUpSeed(detail, sent));
+		} catch (err) {
+			error = (err as Error).message;
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function remove() {
+		if (!confirm("Delete this campaign? Tracking data for emails already sent is kept. Follow-ups already scheduled keep running (see Follow-ups).")) return;
+		try {
+			await (await pageApi()).deleteCampaign(id);
+			onDeleted();
+		} catch (err) {
+			error = (err as Error).message;
+		}
+	}
+
+	const nonOpeners = $derived(detail ? nonOpenerCount(detail.stats) : 0);
 </script>
 
 <div class="detail">
@@ -98,9 +210,9 @@
 					<Icon name={ICON[a]} /> {LABELS[a]}
 				</button>
 			{/each}
-			{#if nonOpenerCount > 0}
-				<button class="btn" onclick={() => detail && onFollowUp(detail)} title="New draft campaign to sent recipients who haven't opened (or only a privacy proxy did)">
-					<Icon name="arrow-u-up-left" /> Follow up with {plural(nonOpenerCount, "non-opener")}
+			{#if nonOpeners > 0}
+				<button class="btn" disabled={busy} onclick={followUpNonOpeners} title="New draft campaign to sent recipients who haven't opened (or only a privacy proxy did)">
+					<Icon name="arrow-u-up-left" /> Follow up with {plural(nonOpeners, "non-opener")}
 				</button>
 			{/if}
 			<span class="spacer"></span>
@@ -108,10 +220,42 @@
 				<button class="btn" onclick={remove} title="Delete campaign"><Icon name="trash" /></button>
 			{/if}
 		</div>
+
+		{#if detail.followUp}
+			<div class="follow-ups">
+				<Icon name="alarm" />
+				<span class="main small">
+					<strong>Follow up until reply</strong>
+					{#if detail.followUp.state === "paused"}<span class="tag">Paused</span>{:else if detail.followUp.state === "cancelled"}<span class="tag">Cancelled</span>{/if}
+					<span class="muted">
+						{plural(detail.followUp.steps.length, "nudge")}{detail.followUp.stopOnOpen ? ", stops on open" : ""}
+						{#if detail.followUpStats}· {followUpStatsLine(detail.followUpStats)}{/if}
+					</span>
+				</span>
+				{#each followUpActions(detail.followUp) as a (a)}
+					<button class="btn" disabled={busy} onclick={() => actOnFollowUps(a)}>
+						<Icon name={a === "resume" ? "play" : a === "pause" ? "pause" : "prohibit"} /> {FOLLOW_UP_LABELS[a]}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="filters">
+			<label class="search">
+				<Icon name="magnifying-glass" />
+				<input class="input" type="search" placeholder="Search email or name" bind:value={query} oninput={onSearch} />
+			</label>
+			<select class="input" bind:value={filter} onchange={load} aria-label="Filter recipients">
+				{#each FILTERS as f (f.value)}<option value={f.value}>{f.label}</option>{/each}
+			</select>
+		</div>
+
 		<table>
-			<thead><tr><th></th><th>Recipient</th><th>Status</th><th>Sent</th></tr></thead>
+			<thead>
+				<tr><th></th><th>Recipient</th><th>Status</th>{#if detail.followUp}<th>Follow-up</th>{/if}<th>Sent</th></tr>
+			</thead>
 			<tbody>
-				{#each detail.recipients as r (r.email)}
+				{#each recipients.items as r (r.email)}
 					<tr>
 						<td class="icon">
 							{#if r.state === "sent" && r.status}
@@ -138,11 +282,17 @@
 							{/if}
 							{#if r.error}<div class="muted">{r.error}</div>{/if}
 						</td>
+						{#if detail.followUp}
+							<td class="small muted">{r.followUp ? recipientFollowUpLabel(r.followUp, dateTime) : r.state === "sent" ? "None" : ""}</td>
+						{/if}
 						<td class="muted small when">{r.sentAt ? relativeTime(r.sentAt) : ""}</td>
 					</tr>
+				{:else}
+					<tr><td colspan="5" class="muted small">{recipients.loading ? "Loading…" : "No recipients match."}</td></tr>
 				{/each}
 			</tbody>
 		</table>
+		<LoadMore list={recipients} label="More recipients" />
 	{/if}
 </div>
 
@@ -159,6 +309,48 @@
 	}
 	.spacer {
 		flex: 1;
+	}
+	.follow-ups {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin: 0 0 12px;
+		padding: 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--bg);
+	}
+	.follow-ups .main {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		flex: 1;
+		min-width: 200px;
+	}
+	.tag {
+		padding: 0 6px;
+		border-radius: 999px;
+		background: var(--bg-hover);
+	}
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.search {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 1;
+		min-width: 180px;
+	}
+	.search input {
+		flex: 1;
+	}
+	.filters select {
+		width: auto;
 	}
 	table {
 		width: 100%;

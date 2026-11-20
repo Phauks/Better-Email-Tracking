@@ -3,6 +3,7 @@ import {
 	type CampaignRecipient,
 	type CampaignSummary,
 	DEFAULT_CAMPAIGN_SETTINGS,
+	type RecipientResultRequest,
 } from "@bet/shared";
 import { describe, expect, it } from "vitest";
 import {
@@ -121,6 +122,8 @@ function harness(c: CampaignDetail) {
 	let ids = 0;
 	let leaseHolder: string | undefined;
 	const sends: { to: string; subject: string; html: string }[] = [];
+	const gets: string[] = [];
+	const results: RecipientResultRequest[] = [];
 	let sendImpl: (to: string) => Promise<{ confirmed: boolean }> = async () => ({
 		confirmed: true,
 	});
@@ -158,7 +161,23 @@ function harness(c: CampaignDetail) {
 			return sendImpl(recipient.email);
 		},
 		api: {
-			get: async () => structuredClone(c),
+			// Like the Worker: stats from the whole queue, recipients filtered and paged.
+			get: async (_id, query) => {
+				const out = structuredClone(c);
+				const count = (state: string) =>
+					c.recipients.filter((r) => r.state === state).length;
+				out.stats = {
+					...out.stats,
+					queued: count("queued"),
+					sending: count("sending"),
+				};
+				const states = query?.state;
+				out.recipients = out.recipients
+					.filter((r) => !states || states.includes(r.state))
+					.slice(0, query?.limit ?? 100);
+				gets.push(states?.join(",") ?? "all");
+				return out;
+			},
 			lease: async (_id, req) => {
 				if (leaseHolder && leaseHolder !== req.runnerId) return false;
 				leaseHolder = req.runnerId;
@@ -173,6 +192,7 @@ function harness(c: CampaignDetail) {
 					(req.state === "sending" && c.status !== "sending")
 				)
 					return { ok: false, conflict: true, error: "409" };
+				results.push(req);
 				r.state = req.state;
 				if (req.messageId) r.messageId = req.messageId;
 				if (req.error) r.error = req.error;
@@ -199,6 +219,8 @@ function harness(c: CampaignDetail) {
 		clock,
 		log,
 		sends,
+		gets,
+		results,
 		deps,
 		setSend: (f: typeof sendImpl) => {
 			sendImpl = f;
@@ -343,5 +365,22 @@ describe("runCampaign", () => {
 		]);
 		expect(h.c.status).toBe("paused");
 		expect(h.c.pauseReason).toMatch(/3 sends failed in a row/);
+	});
+
+	it("asks only for the recipients it needs and reports the thread id", async () => {
+		const h = harness(
+			campaign([recipient("a@x.io", "sending"), recipient("b@x.io")]),
+		);
+		h.setSend(async () => ({ confirmed: true, providerThreadId: "thr-b" }));
+		const res = await runCampaign("camp", h.deps);
+		expect(res).toEqual({ outcome: "done", sent: 1 });
+		// The stale claim is only fetched while one exists.
+		expect(h.gets.slice(0, 2)).toEqual(["queued", "sending"]);
+		expect(h.gets.filter((g) => g === "all")).toEqual([]);
+		expect(h.results.at(-1)).toMatchObject({
+			state: "sent",
+			providerThreadId: "thr-b",
+		});
+		expect(h.c.recipients[0]?.state).toBe("failed");
 	});
 });

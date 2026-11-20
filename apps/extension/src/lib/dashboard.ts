@@ -29,7 +29,10 @@ export type DashboardEntry =
 			at: number;
 	  };
 
-/** Collapses individual-send copies (same groupId) into one entry, newest first. */
+/**
+ * Collapses individual-send copies (same groupId) into one entry, newest first. Pages
+ * loaded later merge into the groups already shown.
+ */
 export function groupMessages(messages: MessageSummary[]): DashboardEntry[] {
 	const groups = new Map<string, MessageSummary[]>();
 	const entries: DashboardEntry[] = [];
@@ -67,16 +70,4 @@ export function groupMessages(messages: MessageSummary[]): DashboardEntry[] {
 		});
 	}
 	return entries.sort((a, b) => b.at - a.at);
-}
-
-export function filterEntries(
-	entries: DashboardEntry[],
-	filter: StatusFilter,
-): DashboardEntry[] {
-	if (filter === "all") return entries;
-	return entries.filter((e) =>
-		e.kind === "group"
-			? e.messages.some((m) => messageStatus(m) === filter)
-			: e.status === filter,
-	);
 }

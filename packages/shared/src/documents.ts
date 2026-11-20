@@ -1,5 +1,6 @@
 import type { IgnoreReason, Recipient } from "./api";
 import type { EventSource } from "./classify";
+import type { Paged } from "./pagination";
 
 /**
  * Tracked documents: the owner uploads a file to the Worker and links to it from an
@@ -77,15 +78,24 @@ export interface DocumentEvent {
 	ignored?: IgnoreReason;
 }
 
+/**
+ * Detail with the first page of per-recipient rows (most recently viewed first, then
+ * most recently sent). More with GET /api/documents/:id/recipients.
+ */
 export interface DocumentDetail extends DocumentSummary {
 	recipients: DocumentRecipientStats[];
+	recipientsNextCursor?: string;
 	pages: DocumentPageStats[];
 	/** Newest first, capped. */
 	events: DocumentEvent[];
 }
 
-export interface ListDocumentsResponse {
+export interface ListDocumentsResponse extends Paged {
 	documents: DocumentSummary[];
+}
+
+export interface ListDocumentRecipientsResponse extends Paged {
+	recipients: DocumentRecipientStats[];
 }
 
 /** Links a registered message to the documents its body links to. */
@@ -110,6 +120,7 @@ export interface ViewerEventsResponse {
 export const DOCUMENT_API = {
 	documents: "/api/documents",
 	document: (id: string) => `/api/documents/${id}`,
+	recipients: (id: string) => `/api/documents/${id}/recipients`,
 	/** Owner preview: authenticated, never counted as a view. */
 	file: (id: string) => `/api/documents/${id}/file`,
 	attach: "/api/documents/attach",

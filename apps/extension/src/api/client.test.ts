@@ -39,4 +39,24 @@ describe("ApiClient", () => {
 			"Worker URL is not set",
 		);
 	});
+
+	it("sends cursors and filters as query parameters", async () => {
+		const urls: string[] = [];
+		const api = new ApiClient("https://t.example.com", "tok", (async (
+			url: string,
+		) => {
+			urls.push(url);
+			return json({ recipients: [] });
+		}) as unknown as typeof fetch);
+		await api.listMessages({ q: "hi there", status: "opened", cursor: "abc" });
+		await api.getCampaign("c1", { state: ["queued", "failed"], limit: 1 });
+		await api.listCampaignRecipients("c1", { cursor: "x", q: "ann" });
+		await api.listNudges({ groupId: "g1", limit: 20 });
+		expect(urls).toEqual([
+			"https://t.example.com/api/messages?q=hi+there&status=opened&cursor=abc",
+			"https://t.example.com/api/campaigns/c1?limit=1&state=queued%2Cfailed",
+			"https://t.example.com/api/campaigns/c1/recipients?cursor=x&q=ann",
+			"https://t.example.com/api/nudges?groupId=g1&limit=20",
+		]);
+	});
 });

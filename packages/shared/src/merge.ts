@@ -324,6 +324,17 @@ export interface RenderResult {
 	missing: string[];
 }
 
+export interface RenderOptions {
+	/** Escape values for HTML (the template text itself is trusted markup). */
+	html?: boolean;
+	/**
+	 * With `html`: whether fallbacks are escaped too (default). Pass false when the
+	 * template was already converted to HTML, so its fallbacks are markup already
+	 * (follow-up nudges: plain text -> textToHtml -> render).
+	 */
+	escapeFallbacks?: boolean;
+}
+
 /**
  * Fills a template. With `html`, values and fallbacks are HTML-escaped (the template
  * text itself is trusted markup written by the sender).
@@ -331,7 +342,7 @@ export interface RenderResult {
 export function renderTemplate(
 	template: string,
 	fields: Record<string, string>,
-	opts: { html?: boolean } = {},
+	opts: RenderOptions = {},
 ): RenderResult {
 	const missing: string[] = [];
 	let output = "";
@@ -340,12 +351,19 @@ export function renderTemplate(
 			output += p.value;
 			continue;
 		}
-		let value = fields[p.name]?.trim() ?? "";
-		if (!value) {
-			if (p.fallback !== undefined) value = p.fallback;
-			else if (!missing.includes(p.name)) missing.push(p.name);
+		const value = fields[p.name]?.trim() ?? "";
+		if (value) {
+			output += opts.html ? escapeHtml(value) : value;
+			continue;
 		}
-		output += opts.html ? escapeHtml(value) : value;
+		if (p.fallback === undefined) {
+			if (!missing.includes(p.name)) missing.push(p.name);
+			continue;
+		}
+		output +=
+			opts.html && opts.escapeFallbacks !== false
+				? escapeHtml(p.fallback)
+				: p.fallback;
 	}
 	return { output, missing };
 }

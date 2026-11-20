@@ -560,3 +560,62 @@ describe("retention with the 15-minute cron", () => {
 		expect(t.nudges.sequences.size).toBe(0);
 	});
 });
+
+describe("listing follow-ups", () => {
+	it("pages newest first with a cursor and filters server-side", async () => {
+		const t = nudgeSetup();
+		await t.connect();
+		const ids: string[] = [];
+		for (let i = 0; i < 5; i++) {
+			const id = `page0000000000000000${i}0`;
+			ids.push(id);
+			await t.s.register({ id });
+			await t.s.markSent(id, T0, `thread-${i}`);
+			// Same createdAt for all: the id breaks ties.
+			t.s.clock.now = T0;
+			const r = await t.create({ messageId: id });
+			expect(r.res.status).toBe(201);
+		}
+		const [first] = await t.list();
+		await t.s.request(`/api/nudges/${first?.id}`, {
+			method: "PATCH",
+			json: { action: "pause" },
+		});
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = (await (
+				await t.s.request(
+					`/api/nudges?limit=2${cursor ? `&cursor=${cursor}` : ""}`,
+				)
+			).json()) as ListNudgesResponse;
+			expect(page.sequences.length).toBeLessThanOrEqual(2);
+			seen.push(...page.sequences.map((x) => x.messageId));
+			cursor = page.nextCursor;
+		} while (cursor);
+		expect(new Set(seen).size).toBe(5);
+		expect([...seen].sort()).toEqual(ids);
+		const paused = (await (
+			await t.s.request("/api/nudges?state=paused")
+		).json()) as ListNudgesResponse;
+		expect(paused.sequences.map((x) => x.id)).toEqual([first?.id]);
+		expect((await t.s.request("/api/nudges?cursor=x")).status).toBe(400);
+	});
+
+	it("marks nudges as nudges, so the email list never shows them", async () => {
+		const t = nudgeSetup();
+		await t.connect();
+		await t.sendOriginal();
+		await t.create();
+		await t.run(T0 + 3 * DAY + 1000);
+		expect(t.mailbox.sent).toHaveLength(1);
+		const nudgeIds = [...t.s.store.messages.values()]
+			.filter((m) => m.kind === "nudge")
+			.map((m) => m.id);
+		expect(nudgeIds).toHaveLength(1);
+		const list = (await (await t.s.request("/api/messages")).json()) as {
+			messages: { id: string }[];
+		};
+		expect(list.messages.map((m) => m.id)).toEqual([ID]);
+	});
+});

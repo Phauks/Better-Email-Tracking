@@ -1,5 +1,7 @@
 import type { Provider, ThreadStatusKind } from "./api";
 import type { MissingPolicy } from "./merge";
+import type { NudgeState, NudgeStep, SendWindow } from "./nudges";
+import type { Paged } from "./pagination";
 
 /**
  * HTTP contract for mail merge campaigns. A campaign's id is the groupId of every
@@ -61,6 +63,55 @@ export interface CampaignRecipientInput {
 	skipReason?: string;
 }
 
+/**
+ * "Follow up until reply" for every copy of a campaign. When a copy is confirmed sent
+ * the Worker starts a nudge sequence for it (see nudges.ts); nudge steps can use the
+ * copy's merge fields. Needs a connected mailbox (GET /api/connectors/status).
+ */
+export interface CampaignFollowUpPolicy {
+	steps: NudgeStep[];
+	/** Also stop once the recipient opens (replies always stop). */
+	stopOnOpen: boolean;
+	sendWindow?: SendWindow;
+}
+
+/** paused: copies sent meanwhile get a paused sequence; cancelled: no new sequences. */
+export type CampaignFollowUpState = "active" | "paused" | "cancelled";
+
+export interface CampaignFollowUp extends CampaignFollowUpPolicy {
+	state: CampaignFollowUpState;
+}
+
+/** A recipient's follow-up sequence, once their copy went out. */
+export interface RecipientFollowUp {
+	sequenceId: string;
+	state: NudgeState;
+	/** Nudges sent so far. */
+	sent: number;
+	/** Nudges planned in total. */
+	steps: number;
+	nextAt?: number;
+}
+
+/** Follow-up sequences of a campaign by state, and nudges sent across them. */
+export interface CampaignFollowUpStats {
+	sequences: number;
+	states: Partial<Record<NudgeState, number>>;
+	nudgesSent: number;
+}
+
+export type CampaignFollowUpAction = "pause" | "resume" | "cancel";
+
+export interface CampaignFollowUpActionRequest {
+	action: CampaignFollowUpAction;
+}
+
+export interface CampaignFollowUpActionResponse {
+	/** Sequences changed. */
+	changed: number;
+	followUp?: CampaignFollowUp;
+}
+
 export interface CreateCampaignRequest {
 	id: string;
 	name: string;
@@ -71,6 +122,8 @@ export interface CreateCampaignRequest {
 	/** "sending" starts right away; "draft" waits for a start action. */
 	status: "draft" | "sending";
 	recipients: CampaignRecipientInput[];
+	/** Follow up until reply; omit for none. */
+	followUp?: CampaignFollowUpPolicy;
 }
 
 export interface CampaignStats {
@@ -101,6 +154,7 @@ export interface CampaignSummary {
 	updatedAt: number;
 	lastSentAt?: number;
 	stats: CampaignStats;
+	followUp?: CampaignFollowUp;
 }
 
 export interface CampaignRecipient {
@@ -115,15 +169,37 @@ export interface CampaignRecipient {
 	status?: ThreadStatusKind;
 	opens?: number;
 	clicks?: number;
+	followUp?: RecipientFollowUp;
 }
 
+/**
+ * Detail with the first page of recipients (in send order, filtered like
+ * GET /api/campaigns/:id/recipients). More with that route and `recipientsNextCursor`.
+ */
 export interface CampaignDetail extends CampaignSummary {
 	bodyTemplate: string;
 	recipients: CampaignRecipient[];
+	recipientsNextCursor?: string;
+	/** Present when the campaign has a follow-up policy. */
+	followUpStats?: CampaignFollowUpStats;
 }
 
-export interface ListCampaignsResponse {
+export interface ListCampaignsResponse extends Paged {
 	campaigns: CampaignSummary[];
+}
+
+/** Filters for a campaign's recipients (detail and recipients routes). */
+export interface RecipientQuery {
+	/** Only these states. */
+	state?: CampaignRecipientState[];
+	/** Case-insensitive substring of email or name. */
+	q?: string;
+	cursor?: string;
+	limit?: number;
+}
+
+export interface ListRecipientsResponse extends Paged {
+	recipients: CampaignRecipient[];
 }
 
 export type CampaignAction = "start" | "pause" | "resume" | "cancel" | "retry";
@@ -139,6 +215,8 @@ export interface RecipientResultRequest {
 	messageId?: string;
 	error?: string;
 	sentAt?: number;
+	/** The sent copy's thread, so its follow-up can start even if markSent was lost. */
+	providerThreadId?: string;
 }
 
 export interface RecipientResultResponse {
@@ -160,6 +238,8 @@ export interface CampaignLeaseResponse {
 export const CAMPAIGN_API = {
 	campaigns: "/api/campaigns",
 	campaign: (id: string) => `/api/campaigns/${id}`,
+	recipients: (id: string) => `/api/campaigns/${id}/recipients`,
+	followUps: (id: string) => `/api/campaigns/${id}/follow-ups`,
 	lease: (id: string) => `/api/campaigns/${id}/lease`,
 	recipientResult: (id: string, email: string) =>
 		`/api/campaigns/${id}/recipients/${encodeURIComponent(email.toLowerCase())}/result`,

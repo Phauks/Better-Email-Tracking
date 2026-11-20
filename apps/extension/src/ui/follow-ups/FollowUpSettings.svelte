@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { ConnectorStatus } from "@bet/shared";
 	import { onDestroy, onMount } from "svelte";
-	import { describePolicy, type NudgeDefaults, previewNudge } from "../../lib/nudges";
+	import type { NudgeDefaults } from "../../lib/nudges";
 	import { isConfigured, loadSettings } from "../../settings";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
+	import FollowUpPolicyFields from "./FollowUpPolicyFields.svelte";
 
 	let { nudges = $bindable() }: { nudges: NudgeDefaults } = $props();
 
@@ -13,8 +14,6 @@
 	let busy = $state(false);
 	let waiting = $state(false);
 	let poll: ReturnType<typeof setInterval> | undefined;
-
-	const preview = $derived(previewNudge(nudges.text, [{ email: "ana@example.com", name: "Ana Silva" }]));
 
 	async function refresh() {
 		statusError = "";
@@ -105,27 +104,14 @@
 		<span><strong>Follow up on every tracked email</strong><small class="muted">You can still turn it off per email.</small></span>
 	</label>
 
-	<fieldset>
-		<legend>Default schedule</legend>
-		<div class="inline">
-			<label>First after <input class="input num" type="number" min="1" max="90" bind:value={nudges.firstAfterDays} /> days</label>
-			<label>then every <input class="input num" type="number" min="1" max="90" bind:value={nudges.intervalDays} /> days</label>
-			<label>up to <input class="input num" type="number" min="1" max="10" bind:value={nudges.maxNudges} /> nudges</label>
-		</div>
-		<small class="muted">{describePolicy(nudges)}</small>
-	</fieldset>
+	<FollowUpPolicyFields
+		bind:value={nudges}
+		legend="Default schedule"
+		textLabel="Default nudge text"
+		previewRecipients={[{ email: "ana@example.com", name: "Ana Silva" }]}
+		fieldHint="and a mail merge campaign's columns"
+	/>
 
-	<label>
-		<span>Default nudge text</span>
-		<textarea class="input" rows="5" bind:value={nudges.text}></textarea>
-		<small class="muted">Placeholders: {"{{firstName|there}}"}, {"{{name}}"}, {"{{email}}"}. The part after | is used when the name is unknown or there are several recipients.</small>
-	</label>
-	<div class="preview"><small class="muted">Preview</small>{preview}</div>
-
-	<label class="choice">
-		<input type="checkbox" bind:checked={nudges.stopOnOpen} />
-		<span><strong>Also stop once they open</strong><small class="muted">Replies always stop follow-ups.</small></span>
-	</label>
 	<label class="choice">
 		<input type="checkbox" bind:checked={nudges.window.enabled} />
 		<span><strong>Only send during working hours</strong><small class="muted">In your current time zone.</small></span>
@@ -177,16 +163,6 @@
 	}
 	.num {
 		width: 64px;
-	}
-	.preview {
-		display: flex;
-		flex-direction: column;
-		white-space: pre-wrap;
-		padding: 8px 10px;
-		margin: -4px 0 12px;
-		border-radius: var(--radius);
-		background: var(--bg);
-		border: 1px dashed var(--border);
 	}
 	.ok {
 		color: var(--green);

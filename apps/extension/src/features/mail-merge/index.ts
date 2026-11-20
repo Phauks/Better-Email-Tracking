@@ -25,7 +25,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function sendMergedCopy(
 	ctx: FeatureContext,
 	{ campaign, recipient, messageId, rendered }: SendArgs,
-): Promise<{ confirmed: boolean }> {
+): Promise<{ confirmed: boolean; providerThreadId?: string }> {
 	const to = {
 		email: recipient.email,
 		...(recipient.name ? { name: recipient.name } : {}),
@@ -62,7 +62,10 @@ async function sendMergedCopy(
 			requireConfirmation: true,
 		},
 	});
-	return { confirmed: r.confirmed };
+	// The thread id lets the Worker start this copy's follow-up, if the campaign has one.
+	return r.providerThreadId
+		? { confirmed: r.confirmed, providerThreadId: r.providerThreadId }
+		: { confirmed: r.confirmed };
 }
 
 function createRunner(ctx: FeatureContext) {
@@ -76,7 +79,8 @@ function createRunner(ctx: FeatureContext) {
 		sleep,
 		send: (args) => sendMergedCopy(ctx, args),
 		api: {
-			get: (id) => callMerge({ type: "bet-merge:get", id }),
+			get: (id, query) =>
+				callMerge({ type: "bet-merge:get", id, ...(query ? { query } : {}) }),
 			lease: (id, req) => callMerge({ type: "bet-merge:lease", id, req }),
 			result: (id, email, req) =>
 				callMerge({ type: "bet-merge:result", id, email, req }),

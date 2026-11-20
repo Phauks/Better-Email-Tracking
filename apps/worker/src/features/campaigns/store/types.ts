@@ -1,4 +1,5 @@
 import type {
+	CampaignFollowUp,
 	CampaignRecipientState,
 	CampaignSettings,
 	CampaignStatus,
@@ -15,6 +16,7 @@ export interface StoredCampaign {
 	status: CampaignStatus;
 	pauseReason?: string;
 	settings: CampaignSettings;
+	followUp?: CampaignFollowUp;
 	total: number;
 	createdAt: number;
 	updatedAt: number;
@@ -41,6 +43,23 @@ export type NewRecipient = Omit<StoredRecipient, "campaignId">;
 
 export type StateCounts = Record<CampaignRecipientState, number>;
 
+export interface CampaignListQuery {
+	/** Rows to return (routes ask for one more to detect a next page). */
+	limit: number;
+	status?: CampaignStatus;
+	/** Keyset: strictly after this (createdAt, id) in newest-first order. */
+	after?: { createdAt: number; id: string };
+}
+
+export interface RecipientPageQuery {
+	limit: number;
+	/** Keyset: positions strictly greater than this (send order). */
+	afterPosition?: number;
+	states?: CampaignRecipientState[];
+	/** Case-insensitive substring of email or name. */
+	q?: string;
+}
+
 export interface RecipientPatch {
 	state: CampaignRecipientState;
 	messageId?: string | null;
@@ -55,9 +74,10 @@ export interface RecipientPatch {
 export interface CampaignStore {
 	create(campaign: NewCampaign, recipients: NewRecipient[]): Promise<void>;
 	get(id: string): Promise<StoredCampaign | null>;
-	/** Newest first. */
-	list(limit: number, status?: CampaignStatus): Promise<StoredCampaign[]>;
-	recipients(id: string): Promise<StoredRecipient[]>;
+	/** Newest first by (createdAt, id). */
+	list(query: CampaignListQuery): Promise<StoredCampaign[]>;
+	/** Recipients in send order (position), filtered and paged. */
+	recipients(id: string, query: RecipientPageQuery): Promise<StoredRecipient[]>;
 	getRecipient(id: string, email: string): Promise<StoredRecipient | null>;
 	/** Per-state counts and the latest sentAt for each campaign. */
 	counts(
@@ -87,6 +107,12 @@ export interface CampaignStore {
 		now: number,
 		error?: string,
 	): Promise<number>;
+	/** Replaces the follow-up policy (null removes it). */
+	setFollowUp(
+		id: string,
+		followUp: CampaignFollowUp | null,
+		now: number,
+	): Promise<boolean>;
 	/** Grants the send lease if it is free, expired, or already held by this runner. */
 	acquireLease(
 		id: string,

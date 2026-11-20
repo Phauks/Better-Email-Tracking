@@ -1,11 +1,17 @@
 import type {
 	CampaignDetail,
+	CampaignFollowUpStats,
 	CampaignRecipient,
 	CampaignStats,
 	CampaignSummary,
+	RecipientFollowUp,
 } from "@bet/shared";
-import type { StoredEvent, StoredMessage } from "../../core/store/types";
-import { countEvents, statusOf } from "../../core/summary";
+import type {
+	Counts,
+	GroupEngagement,
+	StoredMessage,
+} from "../../core/store/types";
+import { EMPTY_COUNTS, statusOf } from "../../core/summary";
 import type {
 	StateCounts,
 	StoredCampaign,
@@ -13,15 +19,14 @@ import type {
 } from "./store/types";
 
 /**
- * Engagement of a campaign's sent copies, computed from the ordinary message/event
- * summaries of its group (campaign id = groupId). Unsent registrations don't count.
+ * A campaign's stats: recipient states from its queue, engagement from the SQL
+ * aggregate over its sent copies (campaign id = groupId; nudges excluded).
  */
 export function campaignStats(
 	states: StateCounts,
-	groupMessages: StoredMessage[],
-	eventsByMessage: Map<string, StoredEvent[]>,
+	engagement: GroupEngagement | undefined,
 ): CampaignStats {
-	const stats: CampaignStats = {
+	return {
 		total:
 			states.queued +
 			states.sending +
@@ -33,29 +38,11 @@ export function campaignStats(
 		sent: states.sent,
 		failed: states.failed,
 		skipped: states.skipped,
-		opened: 0,
-		clicked: 0,
-		machineOnly: 0,
-		unopened: 0,
+		opened: engagement?.opened ?? 0,
+		clicked: engagement?.clicked ?? 0,
+		machineOnly: engagement?.machineOnly ?? 0,
+		unopened: engagement?.unopened ?? 0,
 	};
-	for (const m of groupMessages) {
-		if (m.sentAt === undefined) continue;
-		switch (statusOf(countEvents(eventsByMessage.get(m.id) ?? []))) {
-			case "clicked":
-				stats.clicked++;
-				stats.opened++;
-				break;
-			case "opened":
-				stats.opened++;
-				break;
-			case "machine_only":
-				stats.machineOnly++;
-				break;
-			default:
-				stats.unopened++;
-		}
-	}
-	return stats;
 }
 
 export function toCampaignSummary(
@@ -76,14 +63,16 @@ export function toCampaignSummary(
 	};
 	if (c.pauseReason) s.pauseReason = c.pauseReason;
 	if (lastSentAt !== undefined) s.lastSentAt = lastSentAt;
+	if (c.followUp) s.followUp = c.followUp;
 	return s;
 }
 
-/** Per-recipient rows with the tracking status of each recipient's copy. */
+/** Per-recipient rows with the tracking status and follow-up of each sent copy. */
 export function toCampaignRecipients(
 	recipients: StoredRecipient[],
 	messagesById: Map<string, StoredMessage>,
-	eventsByMessage: Map<string, StoredEvent[]>,
+	counts: Map<string, Counts>,
+	followUps: Map<string, RecipientFollowUp> = new Map(),
 ): CampaignRecipient[] {
 	return recipients.map((r) => {
 		const out: CampaignRecipient = {
@@ -97,10 +86,12 @@ export function toCampaignRecipients(
 		if (r.sentAt !== undefined) out.sentAt = r.sentAt;
 		const m = r.messageId ? messagesById.get(r.messageId) : undefined;
 		if (m && r.state === "sent") {
-			const c = countEvents(eventsByMessage.get(m.id) ?? []);
+			const c = counts.get(m.id) ?? EMPTY_COUNTS;
 			out.status = statusOf(c);
 			out.opens = c.opens;
 			out.clicks = c.clicks;
+			const f = followUps.get(m.id);
+			if (f) out.followUp = f;
 		}
 		return out;
 	});
@@ -110,6 +101,18 @@ export function toCampaignDetail(
 	summary: CampaignSummary,
 	c: StoredCampaign,
 	recipients: CampaignRecipient[],
+	extra: {
+		recipientsNextCursor?: string;
+		followUpStats?: CampaignFollowUpStats;
+	} = {},
 ): CampaignDetail {
-	return { ...summary, bodyTemplate: c.bodyTemplate, recipients };
+	const d: CampaignDetail = {
+		...summary,
+		bodyTemplate: c.bodyTemplate,
+		recipients,
+	};
+	if (extra.recipientsNextCursor)
+		d.recipientsNextCursor = extra.recipientsNextCursor;
+	if (extra.followUpStats) d.followUpStats = extra.followUpStats;
+	return d;
 }

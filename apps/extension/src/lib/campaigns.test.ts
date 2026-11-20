@@ -10,8 +10,11 @@ import {
 	buildCreateRequest,
 	campaignActions,
 	estimateMinutes,
+	followUpActions,
 	followUpSeed,
+	followUpStatsLine,
 	issueText,
+	nonOpenerCount,
 	nonOpeners,
 	progress,
 	statsLine,
@@ -84,7 +87,7 @@ describe("campaign helpers", () => {
 			"a@x.io",
 			"b@x.io",
 		]);
-		const seed = followUpSeed(detail);
+		const seed = followUpSeed(detail, detail.recipients);
 		expect(seed.name).toBe("Follow-up: Launch");
 		expect(seed.subject).toBe("Re: News for {{company}}");
 		expect(seed.recipients[0]).toEqual({
@@ -133,6 +136,50 @@ describe("campaign helpers", () => {
 		});
 		expect(warn.status).toBe("draft");
 		expect(warn.recipients.every((r) => !r.skipReason)).toBe(true);
+		expect(warn.followUp).toBeUndefined();
+		const followUp = {
+			steps: [{ afterDays: 3, html: "<p>Hi {{first_name|there}}</p>" }],
+			stopOnOpen: false,
+		};
+		expect(
+			buildCreateRequest({
+				id: "id",
+				name: "n",
+				provider: "gmail",
+				subject: "s",
+				body: "x",
+				recipients,
+				settings: DEFAULT_CAMPAIGN_SETTINGS,
+				start: false,
+				followUp,
+			}).followUp,
+		).toEqual(followUp);
+	});
+
+	it("summarises follow-ups and offers the bulk actions that apply", () => {
+		expect(followUpStatsLine({ sequences: 0, states: {}, nudgesSent: 0 })).toBe(
+			"No follow-ups started yet",
+		);
+		expect(
+			followUpStatsLine({
+				sequences: 6,
+				states: { active: 3, replied: 2, paused: 1 },
+				nudgesSent: 1,
+			}),
+		).toBe("3 scheduled · 1 paused · 2 replied · 1 nudge sent");
+		expect(followUpActions(undefined)).toEqual([]);
+		expect(followUpActions({ state: "active" })).toEqual(["pause", "cancel"]);
+		expect(followUpActions({ state: "paused" })).toEqual(["resume", "cancel"]);
+		expect(followUpActions({ state: "cancelled" })).toEqual([]);
+		expect(
+			nonOpenerCount({
+				...{ total: 9, queued: 0, sending: 0, sent: 9, failed: 0, skipped: 0 },
+				opened: 4,
+				clicked: 1,
+				machineOnly: 2,
+				unopened: 3,
+			}),
+		).toBe(5);
 	});
 
 	it("estimates run time and describes row issues", () => {

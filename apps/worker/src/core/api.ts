@@ -1,8 +1,12 @@
 import {
+	decodeCursor,
 	type FeedResponse,
 	isValidId,
 	type ListMessagesResponse,
 	type MessageDetail,
+	PAGE_LIMITS,
+	pageOf,
+	type ThreadStatusKind,
 	type ThreadStatusRequest,
 	type ThreadStatusResponse,
 } from "@bet/shared";
@@ -12,7 +16,8 @@ import { ipHashOf } from "../lib/request";
 import type { AppEnv, TrackerModule } from "../types";
 import type { StoredMessage } from "./store/types";
 import {
-	groupByMessage,
+	countEvents,
+	EMPTY_COUNTS,
 	threadStatus,
 	toFeedEvent,
 	toSummary,
@@ -60,24 +65,41 @@ apiRoutes.post("/messages/:id/sent", async (c) => {
 	return c.json({ ok: true });
 });
 
+const STATUSES: ThreadStatusKind[] = [
+	"unopened",
+	"machine_only",
+	"opened",
+	"clicked",
+];
+
+/** Copies of one send group listed per thread row (bounds campaign-sized groups). */
+const MAX_GROUP_MESSAGES = 500;
+
+/** Emails (never nudges), newest first, with cursor pagination and server-side filters. */
 apiRoutes.get("/messages", async (c) => {
-	const limit = intParam(c.req.query("limit"), 50, 1, 200);
-	const beforeRaw = c.req.query("before");
-	const before = beforeRaw ? Number(beforeRaw) : undefined;
+	const { default: def, max } = PAGE_LIMITS.messages;
+	const limit = intParam(c.req.query("limit"), def, 1, max);
+	const cursorRaw = c.req.query("cursor");
+	const cursor = decodeCursor(cursorRaw, ["number", "string"] as const);
+	if (cursorRaw && !cursor) return c.json({ error: "invalid cursor" }, 400);
 	const groupId = c.req.query("groupId");
 	const q = c.req.query("q")?.trim().slice(0, 200);
+	const status = c.req.query("status") as ThreadStatusKind | undefined;
 	const { store } = c.var;
-	const messages = await store.listMessages({
-		limit,
-		...(before !== undefined && Number.isFinite(before) ? { before } : {}),
-		...(groupId ? { groupId } : {}),
+	const rows = await store.listMessages({
+		limit: limit + 1,
+		...(cursor ? { after: { createdAt: cursor[0], id: cursor[1] } } : {}),
+		...(groupId && isValidId(groupId) ? { groupId } : {}),
 		...(q ? { q } : {}),
+		...(status && STATUSES.includes(status) ? { status } : {}),
 	});
-	const events = groupByMessage(
-		await store.getEventsForMessages(messages.map((m) => m.id)),
-	);
+	const page = pageOf(rows, limit, (m) => [m.createdAt, m.id]);
+	const counts = await store.countsForMessages(page.items.map((m) => m.id));
 	const body: ListMessagesResponse = {
-		messages: messages.map((m) => toSummary(m, events.get(m.id) ?? [])),
+		messages: page.items.map((m) =>
+			toSummary(m, counts.get(m.id) ?? EMPTY_COUNTS),
+		),
+		...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
 	};
 	return c.json(body);
 });
@@ -93,7 +115,7 @@ apiRoutes.get("/messages/:id", async (c) => {
 		store.getEventsForMessages([id]),
 	]);
 	const body: MessageDetail = {
-		...toSummary(message, events),
+		...toSummary(message, countEvents(events)),
 		links,
 		events: events.map(toTrackingEvent),
 	};
@@ -156,18 +178,16 @@ async function threadStatuses(
 		),
 	];
 	const inGroups = groupIds.length
-		? await store.getMessagesByGroupIds(groupIds)
+		? await store.getMessagesByGroupIds(groupIds, MAX_GROUP_MESSAGES)
 		: [];
-	const events = groupByMessage(
-		await store.getEventsForMessages([
-			...inThreads.map((m) => m.id),
-			...inGroups.map((m) => m.id),
-		]),
-	);
+	const counts = await store.countsForMessages([
+		...inThreads.map((m) => m.id),
+		...inGroups.map((m) => m.id),
+	]);
 	for (const threadId of threadIds) {
 		const msgs = inThreads.filter((m) => m.providerThreadId === threadId);
 		if (msgs.length > 0)
-			threads[threadId] = threadStatus(msgs, inGroups, events);
+			threads[threadId] = threadStatus(msgs, inGroups, counts);
 	}
 	return { threads };
 }

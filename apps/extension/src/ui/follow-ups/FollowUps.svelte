@@ -7,42 +7,43 @@
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 	import ListState from "../components/ListState.svelte";
+	import LoadMore from "../components/LoadMore.svelte";
+	import { pageFrom } from "../../lib/paging";
+	import { PagedList } from "../paged.svelte";
 
 	let { onopenmessage }: { onopenmessage: (id: string) => void } = $props();
 
 	type Filter = "all" | NudgeState;
 	let filter = $state<Filter>("all");
-	let sequences = $state<NudgeSequence[]>([]);
-	let loading = $state(false);
-	let error = $state("");
+	let actionError = $state("");
 	let expanded = $state<Record<string, boolean>>({});
 	let busy = $state<Record<string, boolean>>({});
 
-	const shown = $derived(filter === "all" ? sequences : sequences.filter((s) => s.state === filter));
-
-	async function load() {
-		loading = true;
-		error = "";
-		try {
-			sequences = (await (await pageApi()).listNudges({ limit: 200 })).sequences;
-		} catch (err) {
-			error = (err as Error).message;
-		} finally {
-			loading = false;
-		}
-	}
+	// The state filter runs on the Worker, so every page is filtered.
+	const list = new PagedList<NudgeSequence>(
+		async (cursor) =>
+			pageFrom(
+				await (await pageApi()).listNudges({
+					...(filter !== "all" ? { state: filter } : {}),
+					...(cursor ? { cursor } : {}),
+				}),
+				"sequences",
+			),
+		(s) => s.id,
+	);
+	const load = () => list.reload();
 
 	async function act(seq: NudgeSequence, action: "pause" | "resume" | "cancel") {
 		if (action === "cancel" && !confirm("Cancel the remaining follow-ups for this email?")) return;
 		busy[seq.id] = true;
-		error = "";
+		actionError = "";
 		try {
 			const api = await pageApi();
 			const { sequence } =
 				action === "cancel" ? await api.cancelNudge(seq.id) : await api.updateNudge(seq.id, { action });
-			sequences = sequences.map((s) => (s.id === sequence.id ? sequence : s));
+			list.replace(sequence);
 		} catch (err) {
-			error = (err as Error).message;
+			actionError = (err as Error).message;
 		} finally {
 			busy[seq.id] = false;
 		}
@@ -85,22 +86,22 @@
 </script>
 
 <div class="bar">
-	<select class="input" bind:value={filter} aria-label="Filter follow-ups">
+	<select class="input" bind:value={filter} onchange={load} aria-label="Filter follow-ups">
 		{#each filters as f (f.value)}<option value={f.value}>{f.label}</option>{/each}
 	</select>
-	<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
+	<button class="btn" onclick={load} disabled={list.loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 </div>
 
 <ListState
-	{loading}
-	{error}
-	isEmpty={shown.length === 0}
-	empty={sequences.length === 0
-		? "No follow-ups yet. Turn them on with the alarm button when you write a tracked email."
+	loading={list.loading}
+	error={actionError || list.error}
+	isEmpty={list.items.length === 0}
+	empty={filter === "all"
+		? "No follow-ups yet. Turn them on with the alarm button when you write a tracked email, or for a mail merge campaign."
 		: "No follow-ups match."}
 >
 	<ul class="card list">
-		{#each shown as seq (seq.id)}
+		{#each list.items as seq (seq.id)}
 			{@const st = STATE_ICON[seq.state]}
 			<li>
 				<div class="row">
@@ -145,6 +146,7 @@
 			</li>
 		{/each}
 	</ul>
+	<LoadMore {list} />
 </ListState>
 
 <style>

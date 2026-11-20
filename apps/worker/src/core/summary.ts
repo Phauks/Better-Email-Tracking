@@ -8,15 +8,18 @@ import {
 	type ThreadStatusKind,
 	type TrackingEvent,
 } from "@bet/shared";
-import type { StoredEvent, StoredMessage } from "./store/types";
+import type { Counts, StoredEvent, StoredMessage } from "./store/types";
 
-export interface Counts {
-	opens: number;
-	machineOpens: number;
-	clicks: number;
-	firstOpenAt?: number;
-	lastEventAt?: number;
-}
+export type { Counts };
+
+/** Sources isLikelyHuman accepts; the D1 aggregates use the same list. */
+export const HUMAN_SOURCES = ["google_proxy", "direct"] as const;
+
+export const EMPTY_COUNTS: Readonly<Counts> = Object.freeze({
+	opens: 0,
+	machineOpens: 0,
+	clicks: 0,
+});
 
 /** Whether an event contributes to open/click counts. */
 export function isCounted(e: StoredEvent): boolean {
@@ -33,6 +36,7 @@ export function isCounted(e: StoredEvent): boolean {
 export function countEvents(events: StoredEvent[]): Counts {
 	const c: Counts = { opens: 0, machineOpens: 0, clicks: 0 };
 	for (const e of events) {
+		if (e.type === "reply" && !e.ignored) c.replied = true;
 		if (!isCounted(e)) continue;
 		if (e.type === "click") c.clicks++;
 		else if (isLikelyHuman(e.source)) {
@@ -62,11 +66,7 @@ export function groupByMessage(
 	return map;
 }
 
-export function toSummary(
-	m: StoredMessage,
-	events: StoredEvent[],
-): MessageSummary {
-	const c = countEvents(events);
+export function toSummary(m: StoredMessage, c: Counts): MessageSummary {
 	const s: MessageSummary = {
 		id: m.id,
 		provider: m.provider,
@@ -117,14 +117,15 @@ export function toFeedEvent(
 export function threadStatus(
 	threadMessages: StoredMessage[],
 	groupMessages: StoredMessage[],
-	eventsByMessage: Map<string, StoredEvent[]>,
+	counts: Map<string, Counts>,
 ): ThreadStatus {
+	const countsOf = (id: string) => counts.get(id) ?? EMPTY_COUNTS;
 	let status: ThreadStatusKind = "unopened";
 	let opens = 0;
 	let clicks = 0;
 	let lastEventAt: number | undefined;
 	for (const m of threadMessages) {
-		const c = countEvents(eventsByMessage.get(m.id) ?? []);
+		const c = countsOf(m.id);
 		status = strongestStatus(status, statusOf(c));
 		opens += c.opens;
 		clicks += c.clicks;
@@ -136,12 +137,7 @@ export function threadStatus(
 	}
 	const out: ThreadStatus = { status, opens, clicks };
 	if (lastEventAt !== undefined) out.lastEventAt = lastEventAt;
-	if (
-		threadMessages.some((m) =>
-			eventsByMessage.get(m.id)?.some((e) => e.type === "reply" && !e.ignored),
-		)
-	)
-		out.replied = true;
+	if (threadMessages.some((m) => countsOf(m.id).replied)) out.replied = true;
 
 	const individual = new Map<string, StoredMessage>();
 	for (const m of threadMessages)
@@ -161,7 +157,7 @@ export function threadStatus(
 			(a, b) => a.createdAt - b.createdAt,
 		);
 		for (const m of ordered) {
-			const st = statusOf(countEvents(eventsByMessage.get(m.id) ?? []));
+			const st = statusOf(countsOf(m.id));
 			for (const r of m.recipients) {
 				const key = r.email.toLowerCase();
 				const prev = perEmail.get(key);

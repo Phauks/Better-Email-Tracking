@@ -1,11 +1,14 @@
 <script lang="ts">
-	import type { DocumentDetail } from "@bet/shared";
+	import type { DocumentDetail, DocumentRecipientStats } from "@bet/shared";
 	import { onMount } from "svelte";
 	import { deviceLabel, SOURCE_LABEL } from "../../lib/feed";
 	import { documentRecipientLabel, formatDuration } from "../../lib/documents";
 	import { relativeTime, dateTime } from "../../lib/time";
 	import Icon from "../components/Icon.svelte";
 	import { pageApi } from "../api";
+	import { pageFrom } from "../../lib/paging";
+	import LoadMore from "../components/LoadMore.svelte";
+	import { PagedList } from "../paged.svelte";
 	import DwellChart from "./DwellChart.svelte";
 
 	let { id, ondeleted }: { id: string; ondeleted: () => void } = $props();
@@ -14,15 +17,21 @@
 	let busy = $state(false);
 	let copied = $state(false);
 
-	onMount(() => {
-		void pageApi()
-			.then((api) => api.getDocument(id))
-			.then((d) => {
-				detail = d;
-			})
-			.catch((err: Error) => {
-				error = err.message;
-			});
+	// The detail carries the first page of recipients; later pages come from their route.
+	const recipients = new PagedList<DocumentRecipientStats>(
+		async (cursor) => {
+			const api = await pageApi();
+			if (cursor) return pageFrom(await api.listDocumentRecipients(id, { cursor }), "recipients");
+			const d = await api.getDocument(id);
+			detail = d;
+			return d.recipientsNextCursor ? { items: d.recipients, nextCursor: d.recipientsNextCursor } : { items: d.recipients };
+		},
+		(r) => r.messageId ?? "",
+	);
+
+	onMount(async () => {
+		await recipients.reload();
+		if (recipients.error) error = recipients.error;
 	});
 
 	async function preview() {
@@ -77,13 +86,13 @@
 		</div>
 
 		<h3>Recipients</h3>
-		{#if detail.recipients.length === 0}
+		{#if recipients.items.length === 0}
 			<p class="muted small">Not sent in a tracked email yet. Use “Attach tracked document” in Gmail’s compose toolbar.</p>
 		{:else}
 			<table>
 				<thead><tr><th>Recipient</th><th>Views</th><th>Reading time</th><th>Downloads</th><th>Last viewed</th></tr></thead>
 				<tbody>
-					{#each detail.recipients as r (r.messageId ?? "link")}
+					{#each recipients.items as r (r.messageId ?? "link")}
 						<tr class:none={r.views === 0}>
 							<td>
 								<span class="who">{documentRecipientLabel(r)}</span>
@@ -97,6 +106,7 @@
 					{/each}
 				</tbody>
 			</table>
+			<LoadMore list={recipients} label="More recipients" />
 		{/if}
 
 		{#if detail.pageCount || detail.pages.length}
@@ -115,7 +125,7 @@
 						<span>
 							{EVENT_LABEL[e.type]}
 							{#if e.messageId}
-								{@const r = detail.recipients.find((x) => x.messageId === e.messageId)}
+								{@const r = recipients.items.find((x) => x.messageId === e.messageId)}
 								{#if r}<span class="muted">· {documentRecipientLabel(r)}</span>{/if}
 							{/if}
 							<span class="tag">{SOURCE_LABEL[e.source]}</span>

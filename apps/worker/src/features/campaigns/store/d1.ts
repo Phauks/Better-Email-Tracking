@@ -1,15 +1,18 @@
 import {
+	type CampaignFollowUp,
 	type CampaignRecipientState,
 	type CampaignSettings,
 	type CampaignStatus,
 	DEFAULT_CAMPAIGN_SETTINGS,
 } from "@bet/shared";
-import { chunks, parseJson, placeholders } from "../../../lib/d1";
+import { chunks, likeContains, parseJson, placeholders } from "../../../lib/d1";
 import {
+	type CampaignListQuery,
 	type CampaignStore,
 	emptyCounts,
 	type NewCampaign,
 	type NewRecipient,
+	type RecipientPageQuery,
 	type RecipientPatch,
 	type StateCounts,
 	type StoredCampaign,
@@ -30,6 +33,7 @@ interface CampaignRow {
 	updated_at: number;
 	runner_id: string | null;
 	lease_until: number | null;
+	follow_up?: string | null;
 }
 
 interface RecipientRow {
@@ -64,6 +68,12 @@ function toCampaign(row: CampaignRow): StoredCampaign {
 		updatedAt: row.updated_at,
 	};
 	if (row.pause_reason) c.pauseReason = row.pause_reason;
+	const followUp = parseJson<CampaignFollowUp | null>(
+		row.follow_up ?? null,
+		null,
+		(v) => isObjectJson(v) && Array.isArray((v as CampaignFollowUp).steps),
+	);
+	if (followUp) c.followUp = followUp;
 	if (row.runner_id) c.runnerId = row.runner_id;
 	if (row.lease_until !== null) c.leaseUntil = row.lease_until;
 	return c;
@@ -96,8 +106,8 @@ export class D1CampaignStore implements CampaignStore {
 		const stmts: D1PreparedStatement[] = [
 			this.db
 				.prepare(
-					`INSERT INTO campaigns (id, name, provider, subject_template, body_template, status, pause_reason, settings, total, created_at, updated_at)
-					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					`INSERT INTO campaigns (id, name, provider, subject_template, body_template, status, pause_reason, settings, follow_up, total, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				)
 				.bind(
 					c.id,
@@ -108,6 +118,7 @@ export class D1CampaignStore implements CampaignStore {
 					c.status,
 					c.pauseReason ?? null,
 					JSON.stringify(c.settings),
+					c.followUp ? JSON.stringify(c.followUp) : null,
 					c.total,
 					c.createdAt,
 					c.updatedAt,
@@ -149,31 +160,68 @@ export class D1CampaignStore implements CampaignStore {
 		return row ? toCampaign(row) : null;
 	}
 
-	async list(
-		limit: number,
-		status?: CampaignStatus,
-	): Promise<StoredCampaign[]> {
-		const stmt = status
-			? this.db
-					.prepare(
-						"SELECT * FROM campaigns WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-					)
-					.bind(status, limit)
-			: this.db
-					.prepare("SELECT * FROM campaigns ORDER BY created_at DESC LIMIT ?")
-					.bind(limit);
-		const { results } = await stmt.all<CampaignRow>();
+	async list(query: CampaignListQuery): Promise<StoredCampaign[]> {
+		const where: string[] = [];
+		const args: unknown[] = [];
+		if (query.status) {
+			where.push("status = ?");
+			args.push(query.status);
+		}
+		if (query.after) {
+			where.push("(created_at, id) < (?, ?)");
+			args.push(query.after.createdAt, query.after.id);
+		}
+		const { results } = await this.db
+			.prepare(
+				`SELECT * FROM campaigns ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+				 ORDER BY created_at DESC, id DESC LIMIT ?`,
+			)
+			.bind(...args, query.limit)
+			.all<CampaignRow>();
 		return results.map(toCampaign);
 	}
 
-	async recipients(id: string): Promise<StoredRecipient[]> {
+	async recipients(
+		id: string,
+		query: RecipientPageQuery,
+	): Promise<StoredRecipient[]> {
+		const where = ["campaign_id = ?"];
+		const args: unknown[] = [id];
+		if (query.states?.length) {
+			where.push(`state IN (${placeholders(query.states.length)})`);
+			args.push(...query.states);
+		}
+		if (query.afterPosition !== undefined) {
+			where.push("position > ?");
+			args.push(query.afterPosition);
+		}
+		if (query.q) {
+			const like = likeContains(query.q);
+			where.push("(email LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')");
+			args.push(like, like);
+		}
 		const { results } = await this.db
 			.prepare(
-				"SELECT * FROM campaign_recipients WHERE campaign_id = ? ORDER BY position",
+				`SELECT * FROM campaign_recipients WHERE ${where.join(" AND ")}
+				 ORDER BY position LIMIT ?`,
 			)
-			.bind(id)
+			.bind(...args, query.limit)
 			.all<RecipientRow>();
 		return results.map(toRecipient);
+	}
+
+	async setFollowUp(
+		id: string,
+		followUp: CampaignFollowUp | null,
+		now: number,
+	): Promise<boolean> {
+		const res = await this.db
+			.prepare(
+				"UPDATE campaigns SET follow_up = ?, updated_at = ? WHERE id = ?",
+			)
+			.bind(followUp ? JSON.stringify(followUp) : null, now, id)
+			.run();
+		return res.meta.changes > 0;
 	}
 
 	async getRecipient(

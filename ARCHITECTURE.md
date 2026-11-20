@@ -60,7 +60,22 @@ store/memory.ts in-memory store for tests
 ```
 
 Feature stores are separate from the core `Store` but may read it (for example, mail merge
-reads the tracked messages of a campaign through `c.var.store`).
+reads the tracked messages of a campaign through `c.var.store`). A feature never imports
+another feature's store. When one feature needs another's behaviour it goes through that
+feature's `public.ts`: mail merge starts follow-ups through `FollowUpService`
+(`features/nudges/public.ts`), injected as `CampaignsDeps.followUps(env, store)` so tests
+can swap it.
+
+### Lists and stats
+
+List routes use keyset pagination (`packages/shared/src/pagination.ts`): rows ordered by
+a stable key such as `(created_at DESC, id DESC)`, `limit + 1` fetched, `pageOf()` cuts
+the page and encodes the last row's key as an opaque `nextCursor`, and `decodeCursor()`
+checks a cursor's shape (a bad one is a 400). Page sizes come from `PAGE_LIMITS`.
+Filters and search are part of the SQL, never applied to a page afterwards. Counts and
+stats are SQL aggregates backed by indexes (migration 0006); each memory store computes
+the same thing with the reference functions (`core/summary.ts`,
+`features/documents/stats.ts`) and tests compare them. No query is unbounded.
 
 ### Adding a Worker feature
 
@@ -112,7 +127,8 @@ Pages call the Worker directly with `pageApi()`.
 3. Worker endpoints: add a section to `ApiClient` in `src/api/client.ts`.
 4. Dashboard view: `src/ui/<name>/<Name>.svelte`, then add it to `VIEWS` and the view
    switch in `src/ui/dashboard/Dashboard.svelte` (hash route `#<id>`). Use
-   `components/ListState.svelte` for loading/error/empty states and the `.card` /
+   `components/ListState.svelte` for loading/error/empty states, `PagedList`
+   (`ui/paged.svelte.ts`) with `components/LoadMore.svelte` for paginated lists, and the `.card` /
    `.list` / `.empty` / `.bad` classes from `theme.css`. Icons: import the Phosphor SVG
    in `src/ui/icons.ts` (keep it alphabetical) and use `<Icon name="..." />`.
 5. Settings: add a typed field to `Settings` in `src/settings.ts` with a default and a
