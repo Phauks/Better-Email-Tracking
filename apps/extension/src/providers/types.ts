@@ -4,6 +4,7 @@
  */
 import type { Provider } from "@bet/shared";
 import type { RecipientSet } from "../lib/recipients";
+import type { ProviderInfo } from "./catalog";
 
 /**
  * What a before-send hook decided:
@@ -116,8 +117,6 @@ export interface MailClientAdapter {
 }
 
 /** Provider modules export a factory; the registry picks one by hostname. */
-export interface ProviderModule {
-	name: Provider;
-	matches(hostname: string): boolean;
+export interface ProviderModule extends ProviderInfo {
 	create(): Promise<MailClientAdapter>;
 }

@@ -6,7 +6,7 @@
 	import Icon from "../components/Icon.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
 	import { pageApi } from "../api";
-	import { dispatchToMailTabs, NO_MAIL_TAB } from "./api";
+	import { dispatchToMailTabs, NO_MAIL_TAB, SENDING_FROM_TAB } from "./api";
 
 	let {
 		id,
@@ -64,7 +64,7 @@
 			detail = await (await pageApi()).updateCampaign(id, { action });
 			if (detail.status === "sending") {
 				const tabs = await dispatchToMailTabs();
-				notice = tabs > 0 ? "Sending from your open Gmail tab." : NO_MAIL_TAB;
+				notice = tabs > 0 ? SENDING_FROM_TAB : NO_MAIL_TAB;
 			}
 			onChanged();
 		} catch (err) {

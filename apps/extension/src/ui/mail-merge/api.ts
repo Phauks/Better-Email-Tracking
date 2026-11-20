@@ -1,4 +1,5 @@
 import { callMerge } from "../../features/mail-merge/messages";
+import { DEFAULT_PROVIDER } from "../../providers/catalog";
 
 /** Wakes open mail tabs so one starts sending. Resolves to how many answered. */
 export async function dispatchToMailTabs(): Promise<number> {
@@ -9,5 +10,11 @@ export async function dispatchToMailTabs(): Promise<number> {
 	}
 }
 
-export const NO_MAIL_TAB =
-	"No Gmail tab is open. Open Gmail in this browser and sending starts there automatically (keep the tab open).";
+const mail = DEFAULT_PROVIDER.label;
+
+/** The provider new campaigns are sent from. */
+export const MERGE_PROVIDER = DEFAULT_PROVIDER.name;
+
+export const NO_MAIL_TAB = `No ${mail} tab is open. Open ${mail} in this browser and sending starts there automatically (keep the tab open).`;
+
+export const SENDING_FROM_TAB = `Sending from your open ${mail} tab.`;

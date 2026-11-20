@@ -28,7 +28,7 @@
 	import { loadSettings } from "../../settings";
 	import Icon from "../components/Icon.svelte";
 	import { pageApi } from "../api";
-	import { dispatchToMailTabs, NO_MAIL_TAB } from "./api";
+	import { dispatchToMailTabs, MERGE_PROVIDER, NO_MAIL_TAB, SENDING_FROM_TAB } from "./api";
 
 	let {
 		seed,
@@ -161,7 +161,7 @@
 			const req = buildCreateRequest({
 				id: newId(),
 				name,
-				provider: "gmail",
+				provider: MERGE_PROVIDER,
 				subject,
 				body,
 				recipients,
@@ -173,7 +173,7 @@
 			let notice = start ? "Campaign started." : "Draft saved.";
 			if (start) {
 				const tabs = await dispatchToMailTabs();
-				notice = tabs > 0 ? "Campaign started. Sending from your open Gmail tab." : NO_MAIL_TAB;
+				notice = tabs > 0 ? `Campaign started. ${SENDING_FROM_TAB}` : NO_MAIL_TAB;
 			}
 			onDone(req.id, notice);
 		} catch (err) {
