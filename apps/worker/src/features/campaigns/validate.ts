@@ -1,17 +1,29 @@
 import {
 	type CampaignAction,
+	type CampaignFollowUpAction,
 	type CampaignLeaseRequest,
 	type CampaignRecipientInput,
+	type CampaignRecipientState,
 	type CampaignSettings,
 	type CreateCampaignRequest,
 	DEFAULT_CAMPAIGN_SETTINGS,
+	decodeCursor,
 	isValidEmail,
 	isValidId,
 	CAMPAIGN_LIMITS as L,
+	PAGE_LIMITS,
 	type RecipientResultRequest,
 	type UpdateCampaignRequest,
 } from "@bet/shared";
-import { clampInt, fail, isObject, type Parsed } from "../../lib/parse";
+import {
+	clampInt,
+	fail,
+	intParam,
+	isObject,
+	type Parsed,
+} from "../../lib/parse";
+import { parseFollowUpPolicy, type SequenceSpec } from "../nudges/public";
+import type { RecipientPageQuery } from "./store/types";
 
 export function parseSettings(v: unknown): CampaignSettings {
 	const raw = isObject(v) ? v : {};
@@ -59,9 +71,13 @@ function parseRecipient(r: unknown): CampaignRecipientInput | string {
 	return out;
 }
 
+export type CreateCampaignInput = Omit<CreateCampaignRequest, "followUp"> & {
+	followUp?: SequenceSpec;
+};
+
 export function parseCreateCampaign(
 	body: unknown,
-): Parsed<CreateCampaignRequest> {
+): Parsed<CreateCampaignInput> {
 	if (!isObject(body)) return fail("body must be an object");
 	const { id, name, provider, subjectTemplate, bodyTemplate, status } = body;
 	if (typeof id !== "string" || !isValidId(id)) return fail("invalid id");
@@ -89,19 +105,20 @@ export function parseCreateCampaign(
 		seen.add(key);
 		recipients.push(r);
 	}
-	return {
-		ok: true,
-		value: {
-			id,
-			name: name.trim().slice(0, L.maxName) || "Untitled campaign",
-			provider,
-			subjectTemplate,
-			bodyTemplate,
-			status,
-			settings: parseSettings(body.settings),
-			recipients,
-		},
+	const followUp = parseFollowUpPolicy(body.followUp);
+	if (!followUp.ok) return followUp;
+	const value: CreateCampaignInput = {
+		id,
+		name: name.trim().slice(0, L.maxName) || "Untitled campaign",
+		provider,
+		subjectTemplate,
+		bodyTemplate,
+		status,
+		settings: parseSettings(body.settings),
+		recipients,
 	};
+	if (followUp.value) value.followUp = followUp.value;
+	return { ok: true, value };
 }
 
 const ACTIONS: CampaignAction[] = [
@@ -129,7 +146,7 @@ export function parseRecipientResult(
 	body: unknown,
 ): Parsed<RecipientResultRequest> {
 	if (!isObject(body)) return fail("body must be an object");
-	const { state, messageId, error, sentAt } = body;
+	const { state, messageId, error, sentAt, providerThreadId } = body;
 	if (
 		state !== "sending" &&
 		state !== "sent" &&
@@ -149,6 +166,12 @@ export function parseRecipientResult(
 			return fail("invalid sentAt");
 		value.sentAt = sentAt;
 	}
+	if (
+		typeof providerThreadId === "string" &&
+		providerThreadId.trim() &&
+		providerThreadId.length <= 256
+	)
+		value.providerThreadId = providerThreadId.trim();
 	return { ok: true, value };
 }
 
@@ -161,4 +184,48 @@ export function parseLease(body: unknown): Parsed<CampaignLeaseRequest> {
 		ok: true,
 		value: { runnerId, ttlMs: clampInt(ttlMs, 120_000, 10_000, 2 * 3_600_000) },
 	};
+}
+
+const RECIPIENT_STATES: CampaignRecipientState[] = [
+	"queued",
+	"sending",
+	"sent",
+	"failed",
+	"skipped",
+];
+
+/** ?state=a,b&q=&cursor=&limit= for a campaign's recipients. */
+export function parseRecipientQuery(
+	query: (name: string) => string | undefined,
+): Parsed<RecipientPageQuery> {
+	const { default: def, max } = PAGE_LIMITS.recipients;
+	const value: RecipientPageQuery = {
+		limit: intParam(query("limit"), def, 1, max),
+	};
+	const cursorRaw = query("cursor");
+	if (cursorRaw) {
+		const cursor = decodeCursor(cursorRaw, ["number"] as const);
+		if (!cursor) return fail("invalid cursor");
+		value.afterPosition = cursor[0];
+	}
+	const stateRaw = query("state");
+	if (stateRaw) {
+		const states = stateRaw.split(",").map((s) => s.trim());
+		if (!states.every((s) => RECIPIENT_STATES.includes(s as never)))
+			return fail("invalid state");
+		value.states = states as CampaignRecipientState[];
+	}
+	const q = query("q")?.trim().slice(0, 200);
+	if (q) value.q = q;
+	return { ok: true, value };
+}
+
+export function parseFollowUpAction(
+	body: unknown,
+): Parsed<CampaignFollowUpAction> {
+	if (!isObject(body)) return fail("body must be an object");
+	const { action } = body;
+	if (action !== "pause" && action !== "resume" && action !== "cancel")
+		return fail("action must be pause, resume or cancel");
+	return { ok: true, value: action };
 }

@@ -1,9 +1,15 @@
-import type { CampaignRecipientState, CampaignStatus } from "@bet/shared";
+import type {
+	CampaignFollowUp,
+	CampaignRecipientState,
+	CampaignStatus,
+} from "@bet/shared";
 import {
+	type CampaignListQuery,
 	type CampaignStore,
 	emptyCounts,
 	type NewCampaign,
 	type NewRecipient,
+	type RecipientPageQuery,
 	type RecipientPatch,
 	type StateCounts,
 	type StoredCampaign,
@@ -17,7 +23,7 @@ export class MemoryCampaignStore implements CampaignStore {
 
 	async create(c: NewCampaign, recipients: NewRecipient[]): Promise<void> {
 		if (this.campaigns.has(c.id)) throw new Error("campaign exists");
-		this.campaigns.set(c.id, { ...c });
+		this.campaigns.set(c.id, structuredClone(c));
 		this.recipientRows.set(
 			c.id,
 			recipients.map((r) => ({ ...r, campaignId: c.id })),
@@ -26,24 +32,58 @@ export class MemoryCampaignStore implements CampaignStore {
 
 	async get(id: string): Promise<StoredCampaign | null> {
 		const c = this.campaigns.get(id);
-		return c ? { ...c } : null;
+		return c ? structuredClone(c) : null;
 	}
 
-	async list(
-		limit: number,
-		status?: CampaignStatus,
-	): Promise<StoredCampaign[]> {
+	async list(query: CampaignListQuery): Promise<StoredCampaign[]> {
+		const after = query.after;
 		return [...this.campaigns.values()]
-			.filter((c) => !status || c.status === status)
-			.sort((a, b) => b.createdAt - a.createdAt)
-			.slice(0, limit)
-			.map((c) => ({ ...c }));
+			.filter((c) => !query.status || c.status === query.status)
+			.filter(
+				(c) =>
+					!after ||
+					c.createdAt < after.createdAt ||
+					(c.createdAt === after.createdAt && c.id < after.id),
+			)
+			.sort(
+				(a, b) =>
+					b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+			)
+			.slice(0, query.limit)
+			.map((c) => structuredClone(c));
 	}
 
-	async recipients(id: string): Promise<StoredRecipient[]> {
+	async recipients(
+		id: string,
+		query: RecipientPageQuery,
+	): Promise<StoredRecipient[]> {
+		const q = query.q?.toLowerCase();
 		return (this.recipientRows.get(id) ?? [])
-			.map((r) => ({ ...r, fields: { ...r.fields } }))
-			.sort((a, b) => a.position - b.position);
+			.filter(
+				(r) =>
+					query.afterPosition === undefined || r.position > query.afterPosition,
+			)
+			.filter((r) => !query.states || query.states.includes(r.state))
+			.filter(
+				(r) =>
+					!q || r.email.includes(q) || (r.name ?? "").toLowerCase().includes(q),
+			)
+			.sort((a, b) => a.position - b.position)
+			.slice(0, query.limit)
+			.map((r) => ({ ...r, fields: { ...r.fields } }));
+	}
+
+	async setFollowUp(
+		id: string,
+		followUp: CampaignFollowUp | null,
+		now: number,
+	): Promise<boolean> {
+		const c = this.campaigns.get(id);
+		if (!c) return false;
+		if (followUp) c.followUp = structuredClone(followUp);
+		else delete c.followUp;
+		c.updatedAt = now;
+		return true;
 	}
 
 	async getRecipient(

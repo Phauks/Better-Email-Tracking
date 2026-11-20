@@ -1,5 +1,6 @@
 import {
 	type ConnectorStatusResponse,
+	decodeCursor,
 	escapeHtml,
 	isValidId,
 	type ListNudgesResponse,
@@ -9,6 +10,8 @@ import {
 	type NudgeSequence,
 	type NudgeState,
 	newId,
+	PAGE_LIMITS,
+	pageOf,
 	type StartConnectorResponse,
 } from "@bet/shared";
 import { type Context, Hono } from "hono";
@@ -20,7 +23,6 @@ import {
 	revokeToken,
 } from "../../connectors/google-oauth";
 import type { StoredMessage } from "../../core/store/types";
-import { DAY } from "../../env";
 import {
 	decryptSecret,
 	encryptSecret,
@@ -31,7 +33,7 @@ import { intParam, readJson } from "../../lib/parse";
 import type { AppEnv } from "../../types";
 import type { NudgesDeps } from ".";
 import { googleConfigured, nudgeEnv } from "./env";
-import { nextAllowed } from "./schedule";
+import { DEFAULT_CONNECTOR, newSequence } from "./service";
 import type { NudgeStore, StoredSequence } from "./store/types";
 import { parseCreateNudge, parseUpdateNudge } from "./validate";
 
@@ -69,6 +71,7 @@ export function toApiSequence(
 		recipients: s.to.length ? [...s.to, ...s.cc] : (msg?.recipients ?? []),
 		history,
 	};
+	if (s.groupId) out.groupId = s.groupId;
 	if (s.nextAt !== undefined) out.nextAt = s.nextAt;
 	if (s.sendWindow) out.sendWindow = s.sendWindow;
 	if (s.lastError) out.lastError = s.lastError;
@@ -131,7 +134,7 @@ export function createNudgeRoutes(deps: Pick<NudgesDeps, "store" | "fetch">) {
 				{ error: "The email has no thread id yet", code: "no_thread" },
 				409,
 			);
-		if (!(await nudges.getConnector("google")))
+		if (!(await nudges.getConnector(DEFAULT_CONNECTOR)))
 			return c.json(
 				{
 					error: "Connect Gmail in the extension options to send follow-ups",
@@ -159,26 +162,16 @@ export function createNudgeRoutes(deps: Pick<NudgesDeps, "store" | "fetch">) {
 				});
 			}
 		}
-		const sentAt = msg.sentAt ?? input.sentAt ?? now;
-		const first = input.steps[0]?.afterDays ?? 0;
-		const seq: StoredSequence = {
-			id: newId(),
-			messageId: msg.id,
-			connector: "google",
-			providerThreadId: threadId,
+		const seq = newSequence({
+			message: msg,
+			threadId,
+			spec: input,
 			to: input.to ?? [],
 			cc: input.cc ?? [],
-			state: "active",
-			steps: input.steps,
-			nextStep: 0,
-			nextAt: nextAllowed(sentAt + first * DAY, input.sendWindow),
-			stopOnOpen: input.stopOnOpen,
 			trackerBase: new URL(c.req.url).origin,
-			createdAt: now,
-			updatedAt: now,
-			attempts: 0,
-		};
-		if (input.sendWindow) seq.sendWindow = input.sendWindow;
+			sentAt: msg.sentAt ?? input.sentAt ?? now,
+			now,
+		});
 		await nudges.insertSequence(seq);
 		await nudges.addHistory(seq.id, { at: now, kind: "created" });
 		const [sequence] = await present(c, [seq]);
@@ -186,14 +179,26 @@ export function createNudgeRoutes(deps: Pick<NudgesDeps, "store" | "fetch">) {
 	});
 
 	api.get("/nudges", async (c) => {
+		const { default: def, max } = PAGE_LIMITS.nudges;
+		const limit = intParam(c.req.query("limit"), def, 1, max);
+		const cursorRaw = c.req.query("cursor");
+		const cursor = decodeCursor(cursorRaw, ["number", "string"] as const);
+		if (cursorRaw && !cursor) return c.json({ error: "invalid cursor" }, 400);
 		const state = c.req.query("state") as NudgeState | undefined;
 		const messageId = c.req.query("messageId");
-		const seqs = await nudgesOf(c).listSequences({
-			limit: intParam(c.req.query("limit"), 100, 1, 500),
+		const groupId = c.req.query("groupId");
+		const rows = await nudgesOf(c).listSequences({
+			limit: limit + 1,
+			...(cursor ? { after: { createdAt: cursor[0], id: cursor[1] } } : {}),
 			...(state && STATES.includes(state) ? { state } : {}),
 			...(messageId && isValidId(messageId) ? { messageId } : {}),
+			...(groupId && isValidId(groupId) ? { groupId } : {}),
 		});
-		const body: ListNudgesResponse = { sequences: await present(c, seqs) };
+		const page = pageOf(rows, limit, (s) => [s.createdAt, s.id]);
+		const body: ListNudgesResponse = {
+			sequences: await present(c, page.items),
+			...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+		};
 		return c.json(body);
 	});
 

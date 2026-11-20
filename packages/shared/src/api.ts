@@ -1,5 +1,6 @@
 import type { EventSource } from "./classify";
 import type { NudgeEventType } from "./nudges";
+import type { Paged } from "./pagination";
 
 /**
  * HTTP contract between mail-client extensions and the Worker.
@@ -87,8 +88,20 @@ export interface FeedEvent extends TrackingEvent {
 	linkUrl?: string;
 }
 
-export interface ListMessagesResponse {
+/**
+ * GET /api/messages: newest first, nudges excluded (they show under follow-ups).
+ * Filters run on the server, so every page is filtered.
+ */
+export interface ListMessagesResponse extends Paged {
 	messages: MessageSummary[];
+}
+
+export interface ListMessagesQuery {
+	/** Case-insensitive substring of subject or recipients. */
+	q?: string;
+	/** Tracking status of the message itself. */
+	status?: ThreadStatusKind;
+	groupId?: string;
 }
 
 export interface FeedResponse {

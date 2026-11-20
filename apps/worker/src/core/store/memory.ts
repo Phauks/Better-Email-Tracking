@@ -1,5 +1,8 @@
 import type { IgnoreReason } from "@bet/shared";
+import { countEvents, statusOf } from "../summary";
 import type {
+	Counts,
+	GroupEngagement,
 	ListQuery,
 	NewEvent,
 	NewMessage,
@@ -15,6 +18,9 @@ interface OwnerView {
 	at: number;
 	ipHash?: string;
 }
+
+const newestFirst = (a: StoredMessage, b: StoredMessage) =>
+	b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
 /** In-memory Store for tests and local experiments. Not for production. */
 export class MemoryStore implements Store {
@@ -64,8 +70,15 @@ export class MemoryStore implements Store {
 
 	async listMessages(query: ListQuery): Promise<StoredMessage[]> {
 		const q = query.q?.toLowerCase();
+		const after = query.after;
 		return [...this.messages.values()]
-			.filter((m) => query.before === undefined || m.createdAt < query.before)
+			.filter((m) => m.kind !== "nudge")
+			.filter(
+				(m) =>
+					!after ||
+					m.createdAt < after.createdAt ||
+					(m.createdAt === after.createdAt && m.id < after.id),
+			)
 			.filter((m) => !query.groupId || m.groupId === query.groupId)
 			.filter(
 				(m) =>
@@ -73,7 +86,12 @@ export class MemoryStore implements Store {
 					m.subject.toLowerCase().includes(q) ||
 					JSON.stringify(m.recipients).toLowerCase().includes(q),
 			)
-			.sort((a, b) => b.createdAt - a.createdAt)
+			.filter(
+				(m) =>
+					!query.status ||
+					statusOf(countEvents(this.eventsOf(m.id))) === query.status,
+			)
+			.sort(newestFirst)
 			.slice(0, query.limit)
 			.map((m) => ({ ...m }));
 	}
@@ -90,11 +108,18 @@ export class MemoryStore implements Store {
 		);
 	}
 
-	async getMessagesByGroupIds(groupIds: string[]): Promise<StoredMessage[]> {
+	async getMessagesByGroupIds(
+		groupIds: string[],
+		limit: number,
+	): Promise<StoredMessage[]> {
 		const set = new Set(groupIds);
-		return [...this.messages.values()].filter(
-			(m) => m.groupId !== undefined && set.has(m.groupId),
-		);
+		return [...this.messages.values()]
+			.filter(
+				(m) =>
+					m.kind !== "nudge" && m.groupId !== undefined && set.has(m.groupId),
+			)
+			.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))
+			.slice(0, limit);
 	}
 
 	async deleteMessage(id: string): Promise<boolean> {
@@ -114,6 +139,38 @@ export class MemoryStore implements Store {
 	async getEventsForMessages(ids: string[]): Promise<StoredEvent[]> {
 		const set = new Set(ids);
 		return this.events.filter((e) => set.has(e.messageId));
+	}
+
+	async countsForMessages(ids: string[]): Promise<Map<string, Counts>> {
+		const out = new Map<string, Counts>();
+		for (const id of new Set(ids)) {
+			const events = this.eventsOf(id).filter((e) => !e.ignored);
+			if (events.length) out.set(id, countEvents(events));
+		}
+		return out;
+	}
+
+	async groupEngagement(
+		groupIds: string[],
+	): Promise<Map<string, GroupEngagement>> {
+		const out = new Map<string, GroupEngagement>();
+		const set = new Set(groupIds);
+		for (const m of this.messages.values()) {
+			if (m.kind === "nudge" || m.sentAt === undefined) continue;
+			if (!m.groupId || !set.has(m.groupId)) continue;
+			let g = out.get(m.groupId);
+			if (!g) {
+				g = { sent: 0, opened: 0, clicked: 0, machineOnly: 0, unopened: 0 };
+				out.set(m.groupId, g);
+			}
+			g.sent++;
+			const status = statusOf(countEvents(this.eventsOf(m.id)));
+			if (status === "clicked") g.clicked++;
+			if (status === "clicked" || status === "opened") g.opened++;
+			else if (status === "machine_only") g.machineOnly++;
+			else g.unopened++;
+		}
+		return out;
 	}
 
 	async getFeedEventsAfter(
@@ -194,6 +251,10 @@ export class MemoryStore implements Store {
 			(v) => v.at < cutoff || oldIds.has(v.messageId),
 		);
 		return { messages: old.length, events, ownerViews };
+	}
+
+	private eventsOf(messageId: string): StoredEvent[] {
+		return this.events.filter((e) => e.messageId === messageId);
 	}
 
 	private removeWhere<T>(list: T[], pred: (item: T) => boolean): number {

@@ -7,7 +7,18 @@ import type {
 	DocumentSummary,
 } from "@bet/shared";
 import type { StoredMessage } from "../../core/store/types";
-import type { StoredDocEvent, StoredDocument } from "./store/types";
+import {
+	type DocRecipientKey,
+	type DocRecipientRow,
+	docRecipientKey,
+	type StoredDocEvent,
+	type StoredDocument,
+} from "./store/types";
+
+/*
+ * Reference implementations over event lists. The memory store uses them as they are;
+ * the D1 store computes the same numbers with SQL aggregates (a test keeps them equal).
+ */
 
 /** Owner, send-grace and scanner events are kept for the timeline but never counted. */
 export function isCountedDocEvent(e: StoredDocEvent): boolean {
@@ -20,13 +31,12 @@ function viewerKey(e: StoredDocEvent): string {
 	return `v:${e.id}`;
 }
 
+export function emptyDocumentStats(): DocumentStats {
+	return { views: 0, uniqueViewers: 0, downloads: 0, totalDwellMs: 0 };
+}
+
 export function documentStats(events: StoredDocEvent[]): DocumentStats {
-	const s: DocumentStats = {
-		views: 0,
-		uniqueViewers: 0,
-		downloads: 0,
-		totalDwellMs: 0,
-	};
+	const s = emptyDocumentStats();
 	const viewers = new Set<string>();
 	for (const e of events) {
 		if (!isCountedDocEvent(e)) continue;
@@ -40,24 +50,6 @@ export function documentStats(events: StoredDocEvent[]): DocumentStats {
 	}
 	s.uniqueViewers = viewers.size;
 	return s;
-}
-
-export function toDocumentSummary(
-	doc: StoredDocument,
-	events: StoredDocEvent[],
-	url: string,
-): DocumentSummary {
-	const out: DocumentSummary = {
-		id: doc.id,
-		name: doc.name,
-		mime: doc.mime,
-		size: doc.size,
-		createdAt: doc.createdAt,
-		url,
-		stats: documentStats(events),
-	};
-	if (doc.pages !== undefined) out.pageCount = doc.pages;
-	return out;
 }
 
 /** Per-page dwell totals and how many distinct views reached each page. */
@@ -79,30 +71,39 @@ export function pageStats(events: StoredDocEvent[]): DocumentPageStats[] {
 		.map(([page, p]) => ({ page, dwellMs: p.dwellMs, views: p.views.size }));
 }
 
+/** Sort order of keys: descending, part by part (> 0 when `a` comes after `b`). */
+export function compareKeys(a: DocRecipientKey, b: DocRecipientKey): number {
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] === b[i]) continue;
+		return (a[i] as number | string) < (b[i] as number | string) ? 1 : -1;
+	}
+	return 0;
+}
+
+export function compareRecipientRows(
+	a: DocRecipientRow,
+	b: DocRecipientRow,
+): number {
+	return compareKeys(docRecipientKey(a), docRecipientKey(b));
+}
+
 /**
  * One row per tracked message the document went out in (viewed or not), plus a
- * messageId-null row for views through the bare, unattributed link.
+ * messageId-null row for views through the bare, unattributed link. Sorted.
  */
-export function recipientStats(
+export function recipientRows(
 	events: StoredDocEvent[],
 	linkedMessageIds: string[],
-	messages: Map<string, StoredMessage>,
-): DocumentRecipientStats[] {
-	const rows = new Map<string, DocumentRecipientStats>();
-	const row = (messageId: string | null): DocumentRecipientStats => {
+	sentAtOf: (messageId: string) => number | undefined,
+): DocRecipientRow[] {
+	const rows = new Map<string, DocRecipientRow>();
+	const row = (messageId: string | null): DocRecipientRow => {
 		const key = messageId ?? "";
 		let r = rows.get(key);
 		if (!r) {
-			const m = messageId ? messages.get(messageId) : undefined;
-			r = {
-				messageId,
-				recipients: m?.recipients ?? [],
-				views: 0,
-				downloads: 0,
-				dwellMs: 0,
-			};
-			if (m) r.subject = m.subject;
-			if (m?.sentAt !== undefined) r.sentAt = m.sentAt;
+			r = { messageId, views: 0, downloads: 0, dwellMs: 0 };
+			const sentAt = messageId ? sentAtOf(messageId) : undefined;
+			if (sentAt !== undefined) r.sentAt = sentAt;
 			rows.set(key, r);
 		}
 		return r;
@@ -118,11 +119,43 @@ export function recipientStats(
 		} else if (e.type === "download") r.downloads++;
 		else r.dwellMs += e.dwellMs ?? 0;
 	}
-	return [...rows.values()].sort(
-		(a, b) =>
-			(b.lastViewedAt ?? 0) - (a.lastViewedAt ?? 0) ||
-			(b.sentAt ?? 0) - (a.sentAt ?? 0),
-	);
+	return [...rows.values()].sort(compareRecipientRows);
+}
+
+/** A row as the API shows it, with the message's recipients and subject. */
+export function toRecipientStats(
+	row: DocRecipientRow,
+	message: StoredMessage | undefined,
+): DocumentRecipientStats {
+	const r: DocumentRecipientStats = {
+		messageId: row.messageId,
+		recipients: message?.recipients ?? [],
+		views: row.views,
+		downloads: row.downloads,
+		dwellMs: row.dwellMs,
+	};
+	if (message) r.subject = message.subject;
+	if (message?.sentAt !== undefined) r.sentAt = message.sentAt;
+	if (row.lastViewedAt !== undefined) r.lastViewedAt = row.lastViewedAt;
+	return r;
+}
+
+export function toDocumentSummary(
+	doc: StoredDocument,
+	stats: DocumentStats,
+	url: string,
+): DocumentSummary {
+	const out: DocumentSummary = {
+		id: doc.id,
+		name: doc.name,
+		mime: doc.mime,
+		size: doc.size,
+		createdAt: doc.createdAt,
+		url,
+		stats,
+	};
+	if (doc.pages !== undefined) out.pageCount = doc.pages;
+	return out;
 }
 
 export function toDocumentEvent(e: StoredDocEvent): DocumentEvent {
@@ -133,16 +166,22 @@ export function toDocumentEvent(e: StoredDocEvent): DocumentEvent {
 export const TIMELINE_LIMIT = 300;
 
 export function toDocumentDetail(
-	doc: StoredDocument,
-	events: StoredDocEvent[],
-	linkedMessageIds: string[],
-	messages: Map<string, StoredMessage>,
-	url: string,
+	summary: DocumentSummary,
+	parts: {
+		recipients: DocumentRecipientStats[];
+		recipientsNextCursor?: string;
+		pages: DocumentPageStats[];
+		/** Newest first. */
+		events: StoredDocEvent[];
+	},
 ): DocumentDetail {
-	return {
-		...toDocumentSummary(doc, events, url),
-		recipients: recipientStats(events, linkedMessageIds, messages),
-		pages: pageStats(events),
-		events: events.slice(-TIMELINE_LIMIT).reverse().map(toDocumentEvent),
+	const d: DocumentDetail = {
+		...summary,
+		recipients: parts.recipients,
+		pages: parts.pages,
+		events: parts.events.map(toDocumentEvent),
 	};
+	if (parts.recipientsNextCursor)
+		d.recipientsNextCursor = parts.recipientsNextCursor;
+	return d;
 }

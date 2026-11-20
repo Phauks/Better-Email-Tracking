@@ -4,8 +4,12 @@ import type {
 	IgnoreReason,
 	Provider,
 	Recipient,
+	ThreadStatusKind,
 	TrackingMode,
 } from "@bet/shared";
+
+/** "nudge": a follow-up the Worker sent. Hidden from lists and campaign stats. */
+export type MessageKind = "email" | "nudge";
 
 /** A tracked message as persisted. Times are epoch milliseconds. */
 export interface StoredMessage {
@@ -15,6 +19,8 @@ export interface StoredMessage {
 	recipients: Recipient[];
 	mode: TrackingMode;
 	groupId?: string;
+	/** Absent for ordinary emails. */
+	kind?: "nudge";
 	trackOpens: boolean;
 	trackLinks: boolean;
 	createdAt: number;
@@ -57,12 +63,35 @@ export interface StoredEvent {
 export type NewEvent = Omit<StoredEvent, "id">;
 
 export interface ListQuery {
+	/** Rows to return (routes ask for one more to detect a next page). */
 	limit: number;
-	/** Only messages created strictly before this time. */
-	before?: number;
+	/** Keyset: only messages strictly after this (createdAt, id) in newest-first order. */
+	after?: { createdAt: number; id: string };
 	groupId?: string;
 	/** Case-insensitive substring match on subject or recipients. */
 	q?: string;
+	/** Only messages whose own tracking status is this. */
+	status?: ThreadStatusKind;
+}
+
+/** Counted engagement of one message (see isCounted in summary.ts). */
+export interface Counts {
+	opens: number;
+	machineOpens: number;
+	clicks: number;
+	firstOpenAt?: number;
+	lastEventAt?: number;
+	/** A non-ignored reply event exists. */
+	replied?: boolean;
+}
+
+/** Sent emails of a group (a campaign) by tracking status. */
+export interface GroupEngagement {
+	sent: number;
+	opened: number;
+	clicked: number;
+	machineOnly: number;
+	unopened: number;
 }
 
 export interface PurgeResult {
@@ -83,17 +112,25 @@ export interface Store {
 	getMessage(id: string): Promise<StoredMessage | null>;
 	getLinks(id: string): Promise<string[]>;
 	getLink(id: string, index: number): Promise<string | null>;
-	/** Newest first by createdAt. */
+	/** Emails (never nudges), newest first by (createdAt, id). */
 	listMessages(query: ListQuery): Promise<StoredMessage[]>;
 	getMessagesByIds(ids: string[]): Promise<StoredMessage[]>;
 	getMessagesByThreadIds(threadIds: string[]): Promise<StoredMessage[]>;
-	getMessagesByGroupIds(groupIds: string[]): Promise<StoredMessage[]>;
+	/** Emails (never nudges) of these groups, at most `limit` (oldest first). */
+	getMessagesByGroupIds(
+		groupIds: string[],
+		limit: number,
+	): Promise<StoredMessage[]>;
 	/** Deletes the message with its links, events and owner views. */
 	deleteMessage(id: string): Promise<boolean>;
 
 	insertEvent(event: NewEvent): Promise<number>;
 	/** All events (ignored included) for the messages, ascending by id. */
 	getEventsForMessages(ids: string[]): Promise<StoredEvent[]>;
+	/** Counted engagement per message (SQL aggregate). Messages without events are absent. */
+	countsForMessages(ids: string[]): Promise<Map<string, Counts>>;
+	/** Engagement of the sent emails of each group (SQL aggregate). Empty groups are absent. */
+	groupEngagement(groupIds: string[]): Promise<Map<string, GroupEngagement>>;
 	/** Non-ignored events with id > since, ascending, at most limit. */
 	getFeedEventsAfter(since: number, limit: number): Promise<StoredEvent[]>;
 	/** The newest non-ignored events, ascending, at most limit. */

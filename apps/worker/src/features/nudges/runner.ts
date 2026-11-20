@@ -2,13 +2,13 @@ import {
 	instrumentHtml,
 	type NudgeHistoryItem,
 	newId,
-	renderNudgeTemplate,
+	nudgeFields,
+	renderTemplate,
 	replySubject,
 	trackingUrls,
 } from "@bet/shared";
 import type { MailboxConnector, SentReply } from "../../connectors/types";
 import type { Store, StoredMessage } from "../../core/store/types";
-import { countEvents } from "../../core/summary";
 import { DAY } from "../../env";
 import {
 	BATCH_LIMIT,
@@ -156,7 +156,11 @@ export async function processSequence(
 		const nudgeId = pending?.nudgeMessageId ?? newId();
 		const to = seq.to.length ? seq.to : msg.recipients;
 		const subject = replySubject(msg.subject);
-		const body = renderNudgeTemplate(step.html, to);
+		// Same engine as mail merge; the step is HTML already, fallbacks included.
+		const body = renderTemplate(step.html, nudgeFields(to, seq.fields), {
+			html: true,
+			escapeFallbacks: false,
+		}).output;
 		const { html, links } = instrumentHtml(body, {
 			messageId: nudgeId,
 			urls: trackingUrls(seq.trackerBase),
@@ -170,6 +174,7 @@ export async function processSequence(
 			subject,
 			recipients: [...to, ...seq.cc],
 			mode: "shared",
+			kind: "nudge",
 			groupId: msg.groupId ?? msg.id,
 			trackOpens: msg.trackOpens,
 			trackLinks: msg.trackLinks,
@@ -278,6 +283,6 @@ async function wasOpened(
 		msg.id,
 		...history.flatMap((h) => (h.nudgeMessageId ? [h.nudgeMessageId] : [])),
 	];
-	const c = countEvents(await deps.store.getEventsForMessages(ids));
-	return c.opens > 0 || c.clicks > 0;
+	const counts = await deps.store.countsForMessages(ids);
+	return [...counts.values()].some((c) => c.opens > 0 || c.clicks > 0);
 }

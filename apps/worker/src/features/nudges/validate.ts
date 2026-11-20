@@ -9,6 +9,7 @@ import {
 } from "@bet/shared";
 import { fail, isNum, isObject, type Parsed } from "../../lib/parse";
 import { isValidTimeZone } from "./schedule";
+import type { SequenceSpec } from "./service";
 
 export function parseSteps(raw: unknown): Parsed<NudgeStep[]> {
 	if (!Array.isArray(raw) || raw.length === 0) return fail("steps required");
@@ -164,5 +165,23 @@ export function parseUpdateNudge(body: unknown): Parsed<UpdateNudgeInput> {
 			if (win.value) value.sendWindow = win.value;
 		}
 	}
+	return { ok: true, value };
+}
+
+/** A follow-up policy another feature stores (mail merge): steps, stopOnOpen, sendWindow. */
+export function parseFollowUpPolicy(
+	raw: unknown,
+): Parsed<SequenceSpec | undefined> {
+	if (raw === undefined || raw === null) return { ok: true, value: undefined };
+	if (!isObject(raw)) return fail("invalid followUp");
+	const steps = parseSteps(raw.steps);
+	if (!steps.ok) return fail(`followUp: ${steps.error}`);
+	const win = parseSendWindow(raw.sendWindow);
+	if (!win.ok) return fail(`followUp: ${win.error}`);
+	const value: SequenceSpec = {
+		steps: steps.value,
+		stopOnOpen: raw.stopOnOpen === true,
+	};
+	if (win.value) value.sendWindow = win.value;
 	return { ok: true, value };
 }

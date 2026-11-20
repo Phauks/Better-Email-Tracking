@@ -9,13 +9,16 @@ import type {
 import { NUDGE_FINAL_STATES } from "@bet/shared";
 import type { ConnectorRecord } from "../../../connectors/types";
 import { chunks, parseJson, placeholders } from "../../../lib/d1";
-import type {
-	NudgeStore,
-	PendingSend,
-	SequenceGuard,
-	SequencePatch,
-	SequenceQuery,
-	StoredSequence,
+import {
+	GROUP_ACTIONS,
+	type GroupAction,
+	type GroupSequenceStats,
+	type NudgeStore,
+	type PendingSend,
+	type SequenceGuard,
+	type SequencePatch,
+	type SequenceQuery,
+	type StoredSequence,
 } from "./types";
 
 interface SequenceRow {
@@ -38,6 +41,8 @@ interface SequenceRow {
 	lock_until: number | null;
 	lock_token: string | null;
 	pending_send: string | null;
+	group_id?: string | null;
+	fields?: string | null;
 }
 
 interface HistoryRow {
@@ -86,6 +91,13 @@ function toSequence(r: SequenceRow): StoredSequence {
 	if (r.lock_token) s.lockToken = r.lock_token;
 	const pending = parseJson<PendingSend | null>(r.pending_send, null);
 	if (pending) s.pendingSend = pending;
+	if (r.group_id) s.groupId = r.group_id;
+	const fields = parseJson<Record<string, string> | null>(
+		r.fields ?? null,
+		null,
+		(v) => typeof v === "object" && v !== null && !Array.isArray(v),
+	);
+	if (fields) s.fields = fields;
 	return s;
 }
 
@@ -117,8 +129,8 @@ export class D1NudgeStore implements NudgeStore {
 		await this.db
 			.prepare(
 				`INSERT INTO nudge_sequences (id, message_id, connector, provider_thread_id, addressees, state, steps, next_step,
-				   next_at, stop_on_open, send_window, tracker_base, created_at, updated_at, attempts)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				   next_at, stop_on_open, send_window, tracker_base, created_at, updated_at, attempts, group_id, fields)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				s.id,
@@ -136,6 +148,8 @@ export class D1NudgeStore implements NudgeStore {
 				s.createdAt,
 				s.updatedAt,
 				s.attempts,
+				s.groupId ?? null,
+				s.fields ? JSON.stringify(s.fields) : null,
 			)
 			.run();
 	}
@@ -159,12 +173,90 @@ export class D1NudgeStore implements NudgeStore {
 			where.push("message_id = ?");
 			args.push(q.messageId);
 		}
-		const sql = `SELECT * FROM nudge_sequences ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ?`;
+		if (q.groupId) {
+			where.push("group_id = ?");
+			args.push(q.groupId);
+		}
+		if (q.after) {
+			where.push("(created_at, id) < (?, ?)");
+			args.push(q.after.createdAt, q.after.id);
+		}
+		const sql = `SELECT * FROM nudge_sequences ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`;
 		const { results } = await this.db
 			.prepare(sql)
 			.bind(...args, q.limit)
 			.all<SequenceRow>();
 		return results.map(toSequence);
+	}
+
+	async latestForMessages(
+		messageIds: string[],
+	): Promise<Map<string, StoredSequence>> {
+		const out = new Map<string, StoredSequence>();
+		for (const part of chunks([...new Set(messageIds)])) {
+			const { results } = await this.db
+				.prepare(
+					`SELECT * FROM nudge_sequences WHERE message_id IN (${placeholders(part.length)})
+					 ORDER BY created_at DESC, id DESC`,
+				)
+				.bind(...part)
+				.all<SequenceRow>();
+			for (const r of results)
+				if (!out.has(r.message_id)) out.set(r.message_id, toSequence(r));
+		}
+		return out;
+	}
+
+	async groupStats(groupId: string): Promise<GroupSequenceStats> {
+		const { results } = await this.db
+			.prepare(
+				`SELECT state, COUNT(*) AS n, SUM(next_step) AS sent
+				 FROM nudge_sequences WHERE group_id = ? GROUP BY state`,
+			)
+			.bind(groupId)
+			.all<{ state: NudgeState; n: number; sent: number | null }>();
+		const stats: GroupSequenceStats = {
+			sequences: 0,
+			states: {},
+			nudgesSent: 0,
+		};
+		for (const r of results) {
+			stats.sequences += r.n;
+			stats.states[r.state] = r.n;
+			stats.nudgesSent += r.sent ?? 0;
+		}
+		return stats;
+	}
+
+	async updateGroup(
+		groupId: string,
+		action: GroupAction,
+		now: number,
+	): Promise<number> {
+		const rule = GROUP_ACTIONS[action];
+		const from = placeholders(rule.from.length);
+		const extra =
+			action === "cancel"
+				? ", next_at = NULL"
+				: action === "resume"
+					? ", attempts = 0, next_at = MAX(COALESCE(next_at, ?1), ?1)"
+					: "";
+		// History first: it selects the rows the update is about to change.
+		const res = await this.db.batch([
+			this.db
+				.prepare(
+					`INSERT INTO nudge_history (sequence_id, at, kind)
+					 SELECT id, ?1, ?2 FROM nudge_sequences WHERE group_id = ?3 AND state IN (${from})`,
+				)
+				.bind(now, rule.history, groupId, ...rule.from),
+			this.db
+				.prepare(
+					`UPDATE nudge_sequences SET state = ?2, updated_at = ?1${extra}
+					 WHERE group_id = ?3 AND state IN (${from})`,
+				)
+				.bind(now, rule.to, groupId, ...rule.from),
+		]);
+		return res[1]?.meta.changes ?? 0;
 	}
 
 	async openSequencesForMessage(messageId: string): Promise<StoredSequence[]> {

@@ -1,10 +1,14 @@
 import {
 	DEFAULT_MAX_DOCUMENT_BYTES,
+	decodeCursor,
 	type IgnoreReason,
 	isPdf,
 	isValidId,
+	type ListDocumentRecipientsResponse,
 	type ListDocumentsResponse,
 	newId,
+	PAGE_LIMITS,
+	pageOf,
 	type UploadDocumentResponse,
 	type ViewerEventsResponse,
 } from "@bet/shared";
@@ -17,8 +21,21 @@ import { intParam, readJson } from "../../lib/parse";
 import { describeRequest, type RequestFacts } from "../../lib/request";
 import type { AppVariables } from "../../types";
 import type { DocumentsBindings } from ".";
-import { toDocumentDetail, toDocumentSummary } from "./stats";
-import type { DocumentStore, ObjectStore, StoredDocument } from "./store/types";
+import { pdfPageCount } from "./pdf";
+import {
+	emptyDocumentStats,
+	TIMELINE_LIMIT,
+	toDocumentDetail,
+	toDocumentSummary,
+	toRecipientStats,
+} from "./stats";
+import {
+	type DocRecipientQuery,
+	type DocumentStore,
+	docRecipientKey,
+	type ObjectStore,
+	type StoredDocument,
+} from "./store/types";
 import {
 	cleanFileName,
 	cleanMime,
@@ -205,6 +222,8 @@ export function viewerRoutes(): Hono<DocsEnv> {
 		if (!classified && parsed.value.events.length > 0)
 			ignored = await documentSuppression(store, config, message, facts, at);
 
+		// The count is read from the file at upload. Only a PDF it couldn't be read from
+		// takes the first viewer's report (any viewer can send anything here).
 		if (parsed.value.pageCount && doc.pages === undefined)
 			await docs.setPageCount(doc.id, parsed.value.pageCount);
 		const pageLimit = doc.pages ?? parsed.value.pageCount ?? MAX_PAGES;
@@ -263,6 +282,41 @@ export function viewerRoutes(): Hono<DocsEnv> {
 	return r;
 }
 
+function recipientQuery(c: Ctx): DocRecipientQuery | null {
+	const { default: def, max } = PAGE_LIMITS.documentRecipients;
+	const limit = intParam(c.req.query("limit"), def, 1, max);
+	const raw = c.req.query("cursor");
+	if (!raw) return { limit };
+	const after = decodeCursor(raw, ["number", "number", "string"] as const);
+	return after ? { limit, after } : null;
+}
+
+/** Per-recipient rows (SQL aggregate), with each page's messages joined in. */
+async function recipientPage(
+	c: Ctx,
+	documentId: string,
+	query: DocRecipientQuery,
+): Promise<ListDocumentRecipientsResponse> {
+	const rows = await c.var.docs.recipientRows(documentId, {
+		...query,
+		limit: query.limit + 1,
+	});
+	const page = pageOf(rows, query.limit, docRecipientKey);
+	const messages = new Map(
+		(
+			await c.var.store.getMessagesByIds(
+				page.items.flatMap((r) => (r.messageId ? [r.messageId] : [])),
+			)
+		).map((m) => [m.id, m]),
+	);
+	return {
+		recipients: page.items.map((r) =>
+			toRecipientStats(r, r.messageId ? messages.get(r.messageId) : undefined),
+		),
+		...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+	};
+}
+
 /** Owner API under /api/documents (bearer auth and CORS come from the core app). */
 export function apiRoutes(): Hono<DocsEnv> {
 	const r = new Hono<DocsEnv>();
@@ -313,6 +367,10 @@ export function apiRoutes(): Hono<DocsEnv> {
 			createdAt: c.var.now(),
 		};
 		doc.r2Key = `documents/${doc.id}`;
+		if (isPdf(doc.mime, doc.name)) {
+			const pages = await pdfPageCount(data).catch(() => undefined);
+			if (pages !== undefined && pages <= MAX_PAGES) doc.pages = pages;
+		}
 		await objects.put(doc.r2Key, data, doc.mime);
 		await c.var.docs.createDocument(doc);
 		const body: UploadDocumentResponse = {
@@ -326,18 +384,27 @@ export function apiRoutes(): Hono<DocsEnv> {
 	});
 
 	r.get("/", async (c) => {
-		const limit = intParam(c.req.query("limit"), 100, 1, 500);
+		const { default: def, max } = PAGE_LIMITS.documents;
+		const limit = intParam(c.req.query("limit"), def, 1, max);
+		const cursorRaw = c.req.query("cursor");
+		const cursor = decodeCursor(cursorRaw, ["number", "string"] as const);
+		if (cursorRaw && !cursor) return c.json({ error: "invalid cursor" }, 400);
 		const { docs } = c.var;
-		const list = await docs.listDocuments(limit);
-		const events = await docs.getEventsForDocuments(list.map((d) => d.id));
+		const rows = await docs.listDocuments({
+			limit: limit + 1,
+			...(cursor ? { after: { createdAt: cursor[0], id: cursor[1] } } : {}),
+		});
+		const page = pageOf(rows, limit, (d) => [d.createdAt, d.id]);
+		const stats = await docs.statsForDocuments(page.items.map((d) => d.id));
 		const body: ListDocumentsResponse = {
-			documents: list.map((d) =>
+			documents: page.items.map((d) =>
 				toDocumentSummary(
 					d,
-					events.filter((e) => e.documentId === d.id),
+					stats.get(d.id) ?? emptyDocumentStats(),
 					docUrl(c, d.id),
 				),
 			),
+			...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
 		};
 		return c.json(body);
 	});
@@ -359,26 +426,42 @@ export function apiRoutes(): Hono<DocsEnv> {
 	r.get("/:id", async (c) => {
 		const id = c.req.param("id");
 		if (!isValidId(id)) return c.json({ error: "invalid id" }, 400);
-		const { docs, store } = c.var;
+		const query = recipientQuery(c);
+		if (!query) return c.json({ error: "invalid cursor" }, 400);
+		const { docs } = c.var;
 		const doc = await docs.getDocument(id);
 		if (!doc) return c.json({ error: "not found" }, 404);
-		const [events, links] = await Promise.all([
-			docs.getEventsForDocuments([id]),
-			docs.getMessageLinks([id]),
+		const [stats, recipients, pages, events] = await Promise.all([
+			docs.statsForDocuments([id]),
+			recipientPage(c, id, query),
+			docs.pageStats(id),
+			docs.recentEvents(id, TIMELINE_LIMIT),
 		]);
-		const linked = links.map((l) => l.messageId);
-		const messageIds = [
-			...new Set([
-				...linked,
-				...events.flatMap((e) => (e.messageId ? [e.messageId] : [])),
-			]),
-		];
-		const messages = new Map(
-			(await store.getMessagesByIds(messageIds)).map((m) => [m.id, m]),
+		const summary = toDocumentSummary(
+			doc,
+			stats.get(id) ?? emptyDocumentStats(),
+			docUrl(c, doc.id),
 		);
 		return c.json(
-			toDocumentDetail(doc, events, linked, messages, docUrl(c, doc.id)),
+			toDocumentDetail(summary, {
+				recipients: recipients.recipients,
+				...(recipients.nextCursor
+					? { recipientsNextCursor: recipients.nextCursor }
+					: {}),
+				pages,
+				events,
+			}),
 		);
+	});
+
+	r.get("/:id/recipients", async (c) => {
+		const id = c.req.param("id");
+		if (!isValidId(id)) return c.json({ error: "invalid id" }, 400);
+		const query = recipientQuery(c);
+		if (!query) return c.json({ error: "invalid cursor" }, 400);
+		if (!(await c.var.docs.getDocument(id)))
+			return c.json({ error: "not found" }, 404);
+		return c.json(await recipientPage(c, id, query));
 	});
 
 	/** Owner preview: authenticated and never recorded as a view. */

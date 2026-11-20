@@ -30,3 +30,8 @@ export function parseJson<T>(
 		return fallback;
 	}
 }
+
+/** A LIKE pattern matching `text` anywhere; use with `ESCAPE '\'`. */
+export function likeContains(text: string): string {
+	return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}

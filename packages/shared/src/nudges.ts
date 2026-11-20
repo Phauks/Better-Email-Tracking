@@ -1,5 +1,7 @@
 import type { Recipient } from "./api";
-import { escapeHtml, firstName } from "./text";
+import { fieldKey } from "./merge";
+import type { Paged } from "./pagination";
+import { firstName } from "./text";
 
 /**
  * Follow-up nudges: the Worker replies in the original thread until someone answers.
@@ -29,7 +31,11 @@ export const NUDGE_FINAL_STATES: readonly NudgeState[] = [
 export interface NudgeStep {
 	/** Days after the previous send (the original email for the first step). */
 	afterDays: number;
-	/** HTML body. Supports {{firstName}}, {{name}}, {{email}} with {{firstName|fallback}}. */
+	/**
+	 * HTML body, rendered with the mail merge template engine ({{field}},
+	 * {{field|fallback}}): firstName, name and email are always available, and a mail
+	 * merge copy's own fields too. See nudgeFields.
+	 */
 	html: string;
 }
 
@@ -102,6 +108,8 @@ export interface NudgeHistoryItem {
 export interface NudgeSequence {
 	id: string;
 	messageId: string;
+	/** The original message's groupId (a mail merge campaign's id), if any. */
+	groupId?: string;
 	connector: string;
 	providerThreadId: string;
 	state: NudgeState;
@@ -121,8 +129,16 @@ export interface NudgeSequence {
 	history: NudgeHistoryItem[];
 }
 
-export interface ListNudgesResponse {
+export interface ListNudgesResponse extends Paged {
 	sequences: NudgeSequence[];
+}
+
+/** Filters for GET /api/nudges (plus cursor and limit). */
+export interface ListNudgesQuery {
+	state?: NudgeState;
+	messageId?: string;
+	/** Sequences of one send group (a mail merge campaign's id). */
+	groupId?: string;
 }
 
 export interface NudgeResponse {
@@ -181,34 +197,36 @@ export function firstNameOf(r: Recipient | undefined): string {
 	return name ? firstName(name) : "";
 }
 
-const PLACEHOLDER = /\{\{\s*(firstName|name|email)\s*(?:\|([^}]*))?\}\}/g;
-
 /**
- * Fills {{firstName}}, {{name}} and {{email}} from one recipient. `{{firstName|there}}`
- * uses "there" when the value is unknown. With several recipients the fallback is used,
- * since one name would be wrong for the others. Recipient values are HTML-escaped.
+ * Template values for a nudge, for the shared merge engine (renderTemplate). With one
+ * recipient: email, name, first_name (alias firstName, as older nudge templates
+ * write it) and any merge fields of a mail merge copy, whose own first_name column
+ * wins over the one derived from the name. With several recipients only merge fields
+ * are set, so {{firstName|there}} falls back rather than naming the wrong person.
+ *
+ * Render nudge HTML with `{ html: true, escapeFallbacks: false }`: the nudge text was
+ * already converted to HTML (fallbacks included).
  */
-export function renderNudgeTemplate(
-	template: string,
+export function nudgeFields(
 	recipients: Recipient[],
-	opts: { html?: boolean } = {},
-): string {
-	const html = opts.html ?? true;
+	mergeFields: Record<string, string> = {},
+): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [k, v] of Object.entries(mergeFields)) {
+		const key = fieldKey(k);
+		if (key && typeof v === "string") out[key] = v;
+	}
 	const one = recipients.length === 1 ? recipients[0] : undefined;
-	return template.replace(
-		PLACEHOLDER,
-		(_m, key: string, fallback: string | undefined) => {
-			let value = "";
-			if (one) {
-				if (key === "firstName") value = firstNameOf(one);
-				else if (key === "name") value = one.name?.trim() ?? "";
-				else value = one.email;
-			}
-			// The fallback is part of the template, so it's already in the template's format.
-			if (!value) return (fallback ?? "").trim();
-			return html ? escapeHtml(value) : value;
-		},
-	);
+	if (one) {
+		out.email = one.email;
+		const name = one.name?.trim() || out.name?.trim() || "";
+		if (name) out.name = name;
+		const first = out.first_name?.trim() || firstNameOf({ email: "", name });
+		if (first) out.first_name = first;
+	}
+	// fieldKey("firstName") is "firstname": keep the camelCase spelling working.
+	if (out.first_name && !out.firstname) out.firstname = out.first_name;
+	return out;
 }
 
 /** "Re: subject" without stacking prefixes. */
