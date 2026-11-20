@@ -61,6 +61,45 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
   and an event timeline that labels each event's source (Gmail proxy, Apple
   privacy proxy, scanner, direct) and device.
 
+- **Mail merge.** The dashboard's **Mail merge** view sends one personalised,
+  individually tracked email per row of a CSV. See below.
+
+### Mail merge
+
+1. **Recipients.** Paste CSV or upload a file. The header row names the columns. Quotes,
+   `""` escapes, line breaks inside quotes, CRLF, `;`/tab separators and an Excel BOM are
+   handled. Pick which column is the email address and which is the name. Every other
+   column becomes a field (rename or ignore it). Invalid addresses and duplicates
+   (case-insensitive) are left out and listed.
+2. **Compose.** Subject and body take `{{field}}` and `{{field|fallback}}`. The body is a
+   plain textarea: line breaks are kept, and simple HTML such as `<b>` or `<a href>` is
+   allowed. Field values are HTML-escaped. `first_name` is derived from the name when no
+   column provides it.
+3. **Preview** each recipient's rendered email. Choose what happens when a field is empty:
+   skip that recipient (default) or send with a blank.
+4. **Send settings.** Random wait between emails (default 20 to 40 s), a per-run cap
+   (default 50, after which the campaign pauses until you resume it) and link tracking.
+
+Sending runs in an open Gmail tab, through the same per-copy pipeline as "Track each
+recipient" (`features/send-copy.ts`): each copy gets its own message id and
+`groupId = campaign id`, is registered, sent through a compose window, confirmed and marked
+sent. The queue lives in the Worker, so closing or reloading Gmail just pauses sending;
+the next Gmail tab picks it up. If several Gmail tabs are open, a lease on the Worker lets
+only one send. A copy that was in flight when the tab closed is marked failed with a note
+to check your Sent folder (never resent automatically). After three failures in a row the
+campaign pauses.
+
+The campaign list shows live progress and each recipient's status with the same icons as
+the sent list. You can pause, resume, cancel or retry failed recipients. **Follow up with
+non-openers** starts a new draft for recipients who have not opened, or were only opened
+by a privacy proxy.
+
+Gmail limits how many emails and recipients you can send per day, and the limits depend
+on the account type. See Google's pages for
+[personal Gmail](https://support.google.com/mail/answer/22839) and
+[Google Workspace](https://support.google.com/a/answer/166852). Recipients on your
+never-track list still get the email, without tracking.
+
 ### The "Track each recipient" tradeoff
 
 To know exactly who opened, the extension has to send separate emails. So:
@@ -86,7 +125,8 @@ src/
     registry.ts     picks an adapter by location.hostname
     gmail/          InboxSDK implementation
   features/         content-script modules: { id, setup(ctx) }, listed in features/index.ts
-    compose-tracking/  individual-send/  own-open/  sent-status/
+    compose-tracking/  individual-send/  own-open/  sent-status/  mail-merge/
+    send-copy.ts    per-copy send pipeline shared by individual-send and mail-merge
   content/          content-script entry; builds the FeatureContext
   background/       service worker: API proxy, feed polling, notifications, badge
   messaging.ts      typed content -> background message union
@@ -94,6 +134,7 @@ src/
   settings.ts       typed chrome.storage.sync settings with defaults
   lib/              pure, unit-tested logic (status badges, feed text, grouping, domains)
   ui/               Svelte 5 pages (popup, options, dashboard), icons.ts, Icon.svelte
+    mail-merge/     dashboard Mail merge view (builder, campaign list and detail)
 ```
 
 Content scripts never call the Worker directly. They send typed messages
@@ -126,7 +167,8 @@ No feature code needs to change.
 
 - Unit tests, from the repo root: `npx vitest run apps/extension`. They cover split
   planning, never-track domains, badge mapping, feed text, settings defaults, the
-  status cache and dashboard grouping.
+  status cache, dashboard grouping, and the mail merge queue (throttle scheduling, per-run
+  cap, resume after reload, lease, failures) and campaign helpers.
 - Type check: `pnpm --filter @bet/extension typecheck`.
 - The popup, options and dashboard pages were smoke-tested in Chromium against a
   mocked Worker.
@@ -137,3 +179,4 @@ No feature code needs to change.
   - attachment detection
   - row badges
   - own-open pixel removal
+  - mail merge sending from a Gmail tab (compose, confirm, throttle, resume after reload)

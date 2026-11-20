@@ -9,6 +9,7 @@ Self-hosted open and click tracking for Gmail, built for one person. No "Sent wi
 - **Ignores your own opens**: send-time grace window, "owner is viewing" signal from the extension, and your IP for direct loads.
 - **Honest opens**: Gmail image proxy, Apple Mail Privacy Protection (machine) and security scanners are labelled separately.
 - **Sent-list status icons**, desktop notifications, a popup activity feed and a full dashboard tab.
+- **Mail merge**: send a personalised email to a CSV list from your own Gmail, one tracked copy per recipient, throttled and resumable, with per-recipient status and a one-click follow-up to non-openers.
 
 ## Layout
 
@@ -38,4 +39,4 @@ Tracking collects when, and roughly how, your recipients read your mail. Raw IPs
 
 ## Roadmap
 
-Document and attachment tracking with page views, follow-up nudges until reply, and bulk mail merge with per-recipient tracking.
+Document and attachment tracking with page views, and follow-up nudges until reply.
