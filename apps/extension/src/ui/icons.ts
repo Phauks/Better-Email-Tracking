@@ -25,6 +25,7 @@ import shieldCheck from "@phosphor-icons/core/assets/regular/shield-check.svg?ra
 import users from "@phosphor-icons/core/assets/regular/users.svg?raw";
 import warning from "@phosphor-icons/core/assets/regular/warning.svg?raw";
 import x from "@phosphor-icons/core/assets/regular/x.svg?raw";
+import { MERGE_ICONS } from "./icons-merge";
 
 export const ICONS = {
 	"arrow-clockwise": arrowClockwise,
@@ -49,6 +50,7 @@ export const ICONS = {
 	users,
 	warning,
 	x,
+	...MERGE_ICONS,
 } as const;
 
 export type IconName = keyof typeof ICONS;

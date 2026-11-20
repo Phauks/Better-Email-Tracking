@@ -8,6 +8,10 @@
 	import Icon from "../components/Icon.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
+	import MailMerge from "../mail-merge/MailMerge.svelte";
+
+	const viewFromHash = () => (location.hash === "#merge" ? "merge" : "messages");
+	let view = $state(viewFromHash());
 
 	let query = $state("");
 	let filter = $state<StatusFilter>("all");
@@ -44,6 +48,7 @@
 	};
 
 	onMount(() => {
+		addEventListener("hashchange", () => (view = viewFromHash()));
 		const m = /message=([0-9A-Za-z]+)/.exec(location.hash);
 		if (m?.[1]) {
 			focusId = m[1];
@@ -93,6 +98,9 @@
 	</li>
 {/snippet}
 
+{#if view === "merge"}
+<MailMerge />
+{:else}
 <main>
 	<header>
 		<h1><Icon name="envelope-simple-open" size={22} /> Tracked emails</h1>
@@ -104,6 +112,7 @@
 			<select class="input" bind:value={filter} aria-label="Filter by status">
 				{#each filters as f (f.value)}<option value={f.value}>{f.label}</option>{/each}
 			</select>
+			<a class="btn" href="#merge"><Icon name="paper-plane-tilt" /> Mail merge</a>
 			<button class="btn" onclick={load} disabled={loading} title="Refresh"><Icon name="arrow-clockwise" /></button>
 			<button class="btn" onclick={() => chrome.runtime.openOptionsPage()} title="Settings"><Icon name="gear" /></button>
 		</div>
@@ -157,6 +166,7 @@
 		{/if}
 	{/if}
 </main>
+{/if}
 
 <style>
 	main {

@@ -3,6 +3,7 @@ import "@inboxsdk/core/background.js";
 import { listenForBgRequests } from "../messaging";
 import { loadSettings } from "../settings";
 import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
+import "./mail-merge";
 
 const POLL_ALARM = "bet-poll-feed";
 

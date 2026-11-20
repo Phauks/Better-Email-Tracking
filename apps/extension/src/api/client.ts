@@ -28,8 +28,8 @@ export class ApiClient {
 		private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
 	) {}
 
-	private async request<T>(
-		method: "GET" | "POST",
+	protected async request<T>(
+		method: "GET" | "POST" | "PATCH" | "DELETE",
 		path: string,
 		body?: unknown,
 		auth = true,

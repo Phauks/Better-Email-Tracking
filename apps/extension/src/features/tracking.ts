@@ -42,9 +42,11 @@ export function prepareTrackedMessage(
 		recipients: Recipient[];
 		mode: TrackingMode;
 		groupId?: string;
+		/** Overrides the trackLinks setting (mail merge campaigns choose their own). */
+		trackLinks?: boolean;
 	},
 ): PreparedMessage {
-	const trackLinks = ctx.settings().trackLinks;
+	const trackLinks = args.trackLinks ?? ctx.settings().trackLinks;
 	const { html, links } = instrumentHtml(args.html, {
 		messageId: args.id,
 		urls: ctx.urls(),
