@@ -2,10 +2,11 @@
 	import { onMount } from "svelte";
 	import { INDIVIDUAL_TOOLTIP } from "../../lib/copy";
 	import {
-		DEFAULT_SETTINGS,
 		type DefaultMode,
+		isValidWorkerUrl,
 		loadSettings,
 		normalizeDomains,
+		normalizeSettings,
 		normalizeWorkerUrl,
 		type Settings,
 		saveSettings,
@@ -13,8 +14,9 @@
 	} from "../../settings";
 	import { ApiClient } from "../../api/client";
 	import Icon from "../components/Icon.svelte";
+	import FollowUpSettings from "../follow-ups/FollowUpSettings.svelte";
 
-	let s = $state<Settings>({ ...DEFAULT_SETTINGS, neverTrackDomains: [] });
+	let s = $state<Settings>(normalizeSettings({}));
 	let domainsText = $state("");
 	let saved = $state("");
 	let saveError = $state("");
@@ -40,8 +42,8 @@
 		saved = "";
 		saveError = "";
 		const workerUrl = normalizeWorkerUrl(s.workerUrl);
-		if (workerUrl && !/^https:\/\//.test(workerUrl)) {
-			saveError = "The tracker URL must start with https://";
+		if (workerUrl && !isValidWorkerUrl(workerUrl)) {
+			saveError = "The tracker URL must start with https:// (or http://localhost for local development)";
 			return;
 		}
 		const permission = workerUrl ? requestHostPermission(workerUrl) : Promise.resolve(true);
@@ -147,6 +149,8 @@
 				<small class="muted">One per line. Subdomains are included. Mail to any of these is sent untracked.</small>
 			</label>
 		</section>
+
+		<FollowUpSettings bind:nudges={s.nudges} />
 
 		<section>
 			<h2>Notifications</h2>

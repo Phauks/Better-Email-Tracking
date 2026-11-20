@@ -104,6 +104,37 @@ a {
 	color: var(--text-muted);
 }
 
+.small {
+	font-size: 12px;
+}
+
+.bad {
+	color: var(--danger);
+}
+
+/* Centered placeholder text: loading, empty and not-configured states. */
+.empty {
+	padding: 32px 0;
+	text-align: center;
+}
+
+.card {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--bg);
+}
+
+/* A bordered list of rows (dashboard views). */
+ul.list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+ul.list > li + li {
+	border-top: 1px solid var(--border);
+}
+
 .status-unopened {
 	color: var(--gray);
 }

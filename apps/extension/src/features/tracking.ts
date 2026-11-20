@@ -42,10 +42,12 @@ export function prepareTrackedMessage(
 		recipients: Recipient[];
 		mode: TrackingMode;
 		groupId?: string;
+		/** Overrides the trackLinks setting (mail merge campaigns choose their own). */
+		trackLinks?: boolean;
 	},
 ): PreparedMessage {
-	const trackLinks = ctx.settings().trackLinks;
-	const { html, links } = instrumentHtml(args.html, {
+	const trackLinks = args.trackLinks ?? ctx.settings().trackLinks;
+	const { html, links, documents } = instrumentHtml(args.html, {
 		messageId: args.id,
 		urls: ctx.urls(),
 		trackOpens: true,
@@ -63,6 +65,7 @@ export function prepareTrackedMessage(
 		trackLinks,
 	};
 	if (args.groupId) request.groupId = args.groupId;
+	if (documents.length) request.documents = documents;
 	return { html, request };
 }
 

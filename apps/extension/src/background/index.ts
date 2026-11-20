@@ -1,8 +1,11 @@
 // InboxSDK's MV3 background half: injects pageWorld.js into Gmail on request.
 import "@inboxsdk/core/background.js";
 import { listenForBgRequests } from "../messaging";
-import { loadSettings } from "../settings";
-import { apiFromSettings, markAllSeen, pollFeed, refreshBadge } from "./feed";
+import { workerApi as api } from "./api";
+import { attachDocumentsAfterRegister, documentHandlers } from "./documents";
+import { markAllSeen, pollFeed, refreshBadge } from "./feed";
+import { startMailMergeBackground } from "./mail-merge";
+import { nudgeHandlers } from "./nudges";
 
 const POLL_ALARM = "bet-poll-feed";
 
@@ -38,11 +41,10 @@ chrome.notifications.onClicked.addListener((id) => {
 	void chrome.notifications.clear(id);
 });
 
-const api = async () => apiFromSettings(await loadSettings());
-
 listenForBgRequests({
 	"bet:register": async ({ req }) => {
 		await (await api()).registerMessage(req);
+		await attachDocumentsAfterRegister(req);
 		return null;
 	},
 	"bet:markSent": async ({ id, req }) => {
@@ -65,6 +67,9 @@ listenForBgRequests({
 		await markAllSeen();
 		return null;
 	},
+	...documentHandlers,
+	...nudgeHandlers,
 });
+startMailMergeBackground();
 
 ensureAlarm();

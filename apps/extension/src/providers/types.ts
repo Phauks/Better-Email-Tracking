@@ -4,6 +4,7 @@
  */
 import type { Provider } from "@bet/shared";
 import type { RecipientSet } from "../lib/recipients";
+import type { ProviderInfo } from "./catalog";
 
 /**
  * What a before-send hook decided:
@@ -34,8 +35,17 @@ export interface ToolbarControl {
 	remove(): void;
 }
 
+/** A small panel anchored to a toolbar control (Gmail: the button's dropdown). */
+export interface ToolbarPopover {
+	readonly el: HTMLElement;
+	close(): void;
+	onClose(cb: () => void): void;
+}
+
 export interface ToolbarControlOptions extends ToolbarControlState {
-	onClick(): void;
+	/** Ask for an anchored popover. Providers that can't give one pass undefined to onClick. */
+	popover?: boolean;
+	onClick(popover?: ToolbarPopover): void;
 }
 
 export interface ComposeSession {
@@ -47,6 +57,8 @@ export interface ComposeSession {
 	getSubject(): string;
 	getBodyHtml(): string;
 	setBodyHtml(html: string): void;
+	/** Inserts HTML at the caret. Optional: callers fall back to appending. */
+	insertHtmlAtCursor?(html: string): void;
 	/** true/false when known; undefined when the provider can't tell. */
 	hasAttachments(): boolean | undefined;
 	addToolbarControl(opts: ToolbarControlOptions): ToolbarControl;
@@ -105,8 +117,6 @@ export interface MailClientAdapter {
 }
 
 /** Provider modules export a factory; the registry picks one by hostname. */
-export interface ProviderModule {
-	name: Provider;
-	matches(hostname: string): boolean;
+export interface ProviderModule extends ProviderInfo {
 	create(): Promise<MailClientAdapter>;
 }

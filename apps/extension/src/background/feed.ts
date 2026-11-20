@@ -1,5 +1,5 @@
 import type { FeedEvent } from "@bet/shared";
-import { ApiClient } from "../api/client";
+import { apiFromSettings } from "../api/client";
 import {
 	type ActivityItem,
 	badgeText,
@@ -10,10 +10,6 @@ import {
 import { describeEvent } from "../lib/feed";
 import { isConfigured, loadSettings, type Settings } from "../settings";
 import { getLocal, setLocal } from "./storage";
-
-export function apiFromSettings(s: Settings): ApiClient {
-	return new ApiClient(s.workerUrl, s.apiToken);
-}
 
 let polling: Promise<void> | null = null;
 
@@ -70,7 +66,7 @@ async function notify(events: FeedEvent[]): Promise<void> {
 		await chrome.notifications.create(`bet-summary-${Date.now()}`, {
 			type: "list",
 			iconUrl: ICON,
-			title: `${events.length} new opens and clicks`,
+			title: `${events.length} new tracking updates`,
 			message: "",
 			items: events.slice(0, 5).map((e) => {
 				const d = describeEvent(e);

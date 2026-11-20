@@ -17,7 +17,8 @@ Vite, [InboxSDK](https://www.inboxsdk.com/) for Gmail, and
 4. The options page opens on install. Enter your Worker URL (for example
    `https://track.example.com`) and API token, then click **Save**. Chrome asks for
    access to that host. Click **Test connection** to check `/api/health` and an
-   authenticated endpoint.
+   authenticated endpoint. For local development, `http://localhost:8787` (from
+   `pnpm dev`) is accepted too.
 
 `node scripts/icons.mjs` regenerates `public/icons/*.png` from the Phosphor
 `envelope-simple-open` glyph. It uses Playwright and Chromium.
@@ -35,6 +36,7 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
 | `notify`             | `true`   | Show desktop notifications for opens and clicks.                                                     |
 | `notifyMachineOpens` | `false`  | Also notify for Apple privacy proxy and scanner opens.                                               |
 | `neverTrackDomains`  | `[]`     | If any recipient is on one of these domains (subdomains included), the email goes out untracked.     |
+| `nudges`             | see text | Follow-up defaults: schedule (3 days, then every 4, up to 3), text, stop on open, working hours.     |
 
 ## Features
 
@@ -56,10 +58,76 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
 - **Background service worker.** Polls `/api/feed` every minute, shows
   notifications, and keeps an unread count on the toolbar badge. The count clears
   when you open the popup.
+- **Follow up if no reply.** The alarm button in the compose toolbar opens a popover:
+  Off, Default (from options) or Custom (first after N days, then every M days, up to
+  K nudges, with editable text and `{{firstName|there}}`-style placeholders). After the
+  email is sent, the extension asks the Worker to create a sequence for it. With
+  "Track each recipient", every copy gets its own sequence and its own personalised
+  nudges. The Worker sends the nudges from your Gmail as replies in the thread and
+  stops when someone answers, so your computer can be off. Connect Gmail once under
+  **Options → Follow-ups** (the Worker needs Google OAuth set up; see
+  `apps/worker/README.md`). If it isn't connected, the popover and a notice after
+  sending say so. Nudges go to the original's visible To/CC, never BCC. Follow-ups
+  need tracking on for that email, and only work for mail sent from the connected
+  Gmail account.
 - **Popup and dashboard.** The popup shows recent activity. The dashboard is a
   full tab with search, a status filter, individual sends grouped per recipient,
   and an event timeline that labels each event's source (Gmail proxy, Apple
-  privacy proxy, scanner, direct) and device.
+  privacy proxy, scanner, direct) and device. Its **Follow-ups** tab lists every
+  sequence with its state, next send time and history, with pause, resume and
+  cancel. Sent nudges and replies also appear in the popup, notifications and
+  timelines; a row badge's tooltip says "Replied" once someone answers.
+
+- **Tracked documents.** The file icon in the compose toolbar ("Attach tracked
+  document") uploads a file to your Worker and inserts a link to it. When the email is
+  sent with tracking on, every copy gets its own link, so you see which recipient
+  opened it, how long they spent on each page of a PDF, and whether they downloaded
+  it. You can also upload from the dashboard's **Documents** tab, which lists views
+  per recipient (including who hasn't opened it yet), a reading-time-per-page chart and
+  recent activity. **Preview** there opens your copy without counting a view. Views
+  also show in the popup and as notifications. Limit: 25 MB by default (the Worker's
+  `DOCS_MAX_MB`).
+- **Attachment hint.** Normal Gmail attachments travel inside the email and can't be
+  tracked. When a tracked email has attachments, the extension suggests a tracked
+  document instead, once per email. It never reads attachment contents.
+- **Mail merge.** The dashboard's **Mail merge** view sends one personalised,
+  individually tracked email per row of a CSV. See below.
+
+### Mail merge
+
+1. **Recipients.** Paste CSV or upload a file. The header row names the columns. Quotes,
+   `""` escapes, line breaks inside quotes, CRLF, `;`/tab separators and an Excel BOM are
+   handled. Pick which column is the email address and which is the name. Every other
+   column becomes a field (rename or ignore it). Invalid addresses and duplicates
+   (case-insensitive) are left out and listed.
+2. **Compose.** Subject and body take `{{field}}` and `{{field|fallback}}`. The body is a
+   plain textarea: line breaks are kept, and simple HTML such as `<b>` or `<a href>` is
+   allowed. Field values are HTML-escaped. `first_name` is derived from the name when no
+   column provides it.
+3. **Preview** each recipient's rendered email. Choose what happens when a field is empty:
+   skip that recipient (default) or send with a blank.
+4. **Send settings.** Random wait between emails (default 20 to 40 s), a per-run cap
+   (default 50, after which the campaign pauses until you resume it) and link tracking.
+
+Sending runs in an open Gmail tab, through the same per-copy pipeline as "Track each
+recipient" (`features/send-copy.ts`): each copy gets its own message id and
+`groupId = campaign id`, is registered, sent through a compose window, confirmed and marked
+sent. The queue lives in the Worker, so closing or reloading Gmail just pauses sending;
+the next Gmail tab picks it up. If several Gmail tabs are open, a lease on the Worker lets
+only one send. A copy that was in flight when the tab closed is marked failed with a note
+to check your Sent folder (never resent automatically). After three failures in a row the
+campaign pauses.
+
+The campaign list shows live progress and each recipient's status with the same icons as
+the sent list. You can pause, resume, cancel or retry failed recipients. **Follow up with
+non-openers** starts a new draft for recipients who have not opened, or were only opened
+by a privacy proxy.
+
+Gmail limits how many emails and recipients you can send per day, and the limits depend
+on the account type. See Google's pages for
+[personal Gmail](https://support.google.com/mail/answer/22839) and
+[Google Workspace](https://support.google.com/a/answer/166852). Recipients on your
+never-track list still get the email, without tracking.
 
 ### The "Track each recipient" tradeoff
 
@@ -83,21 +151,33 @@ The compose tooltip and the options page both explain this.
 src/
   providers/        mail-client adapters (the only code that may import InboxSDK)
     types.ts        MailClientAdapter / ComposeSession / ListRow / MessageViewInfo
-    registry.ts     picks an adapter by location.hostname
+    catalog.ts      provider names and labels, safe for extension pages (no SDKs)
+    registry.ts     picks an adapter by location.hostname (lazy-loads it)
     gmail/          InboxSDK implementation
   features/         content-script modules: { id, setup(ctx) }, listed in features/index.ts
     compose-tracking/  individual-send/  own-open/  sent-status/
+    documents/  mail-merge/  follow-up/
+                    a feature's background messages live in its messages.ts
+    send-copy.ts    per-copy send pipeline shared by individual-send and mail-merge
+    sent-events.ts  hub: tracked sends (with thread ids) for features like follow-up
   content/          content-script entry; builds the FeatureContext
-  background/       service worker: API proxy, feed polling, notifications, badge
-  messaging.ts      typed content -> background message union
-  api/client.ts     typed Worker client (background and extension pages)
+  background/       service worker: API proxy (one handler map per feature), feed
+                    polling, notifications, badge, mail merge tab wake-ups
+  messaging.ts      typed content -> background message union (core + features)
+  api/client.ts     typed Worker client, one section per module (background and pages)
   settings.ts       typed chrome.storage.sync settings with defaults
-  lib/              pure, unit-tested logic (status badges, feed text, grouping, domains)
-  ui/               Svelte 5 pages (popup, options, dashboard), icons.ts, Icon.svelte
+  lib/              pure, unit-tested logic (status badges, feed text, grouping,
+                    domains, time formats, typed runtime channels)
+  ui/               Svelte 5 pages and views
+    popup/  options/  dashboard/   pages; dashboard/ is only the tab shell
+    emails/  documents/  mail-merge/  follow-ups/   one folder per dashboard view
+    components/     Icon, StatusIcon, ListState (loading/error/empty), NotConfigured
+    icons.ts        the single Phosphor icon registry
 ```
 
 Content scripts never call the Worker directly. They send typed messages
 (`src/messaging.ts`) to the background, which holds the token and the host permission.
+Extension pages call the Worker directly with `pageApi()` from `src/ui/api.ts`.
 
 ### Adding a feature
 
@@ -105,7 +185,11 @@ Create `src/features/<name>/index.ts` that exports a `Feature` (`{ id, setup(ctx
 then add it to the list in `src/features/index.ts`. `ctx` gives you the adapter, the
 API, current settings and the tracking URL builders. Shared send helpers, such as
 instrumenting HTML and building the register request, are in `src/features/tracking.ts`,
-so later modules like mail merge can reuse them. Compose `onBeforeSend` hooks run in
+so later modules like mail merge can reuse them. Features that need to act after a
+tracked message is sent (with its provider thread id) subscribe with `onTrackedSent`
+from `src/features/sent-events.ts`; senders call `emitTrackedSent`. A toolbar control can
+ask for an anchored popover (`popover: true`) and mount a Svelte component into it, as
+`follow-up/` does; content-script Svelte components inject their own CSS. Compose `onBeforeSend` hooks run in
 feature order. A hook returns `"continue"`, `"handled"` (it took over the send) or
 `"abort"`.
 
@@ -115,8 +199,9 @@ feature order. A hook returns `"continue"`, `"handled"` (it took over the send) 
    You need compose sessions with a before-send hook that can cancel and resume the
    send, `openCompose`, list rows and message views. If something isn't available,
    make it a no-op or return `undefined` (for example, `hasAttachments`).
-2. Add an entry to `PROVIDERS` in `src/providers/registry.ts`. It is loaded with a
-   dynamic import.
+2. Describe it in `src/providers/catalog.ts` (name, label, host match) and add an
+   entry to `PROVIDERS` in `src/providers/registry.ts`. It is loaded with a dynamic
+   import.
 3. Add the provider's host to `host_permissions` and to `content_scripts.matches` in
    `scripts/manifest.mjs`.
 
@@ -124,9 +209,11 @@ No feature code needs to change.
 
 ## Testing
 
-- Unit tests, from the repo root: `npx vitest run apps/extension`. They cover split
+- Unit tests, from the repo root: `pnpm vitest run apps/extension`. They cover split
   planning, never-track domains, badge mapping, feed text, settings defaults, the
-  status cache and dashboard grouping.
+  status cache, dashboard grouping, follow-up policies and template rendering, and the
+  mail merge queue (throttle scheduling, per-run cap, resume after reload, lease,
+  failures), campaign helpers and the Worker client.
 - Type check: `pnpm --filter @bet/extension typecheck`.
 - The popup, options and dashboard pages were smoke-tested in Chromium against a
   mocked Worker.
@@ -137,3 +224,6 @@ No feature code needs to change.
   - attachment detection
   - row badges
   - own-open pixel removal
+  - mail merge sending from a Gmail tab (compose, confirm, throttle, resume after reload)
+  - the follow-up popover, scheduling after a send (shared and individual), and
+    the Options → Follow-ups Gmail connection

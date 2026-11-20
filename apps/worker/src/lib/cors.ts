@@ -14,7 +14,7 @@ export const apiCors: MiddlewareHandler<AppEnv> = (c, next) =>
 			origin && isAllowedOrigin(origin, c.var.config.allowedOrigins)
 				? origin
 				: null,
-		allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+		allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 		allowHeaders: ["Authorization", "Content-Type"],
 		maxAge: 86_400,
 	})(c, next);

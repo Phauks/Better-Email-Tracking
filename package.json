@@ -4,11 +4,16 @@
 	"type": "module",
 	"packageManager": "pnpm@10.28.0",
 	"scripts": {
+		"dev": "pnpm --parallel --filter @bet/worker --filter @bet/extension dev",
+		"dev:worker": "pnpm --filter @bet/worker dev",
+		"dev:extension": "pnpm --filter @bet/extension dev",
+		"db:migrate:local": "pnpm --filter @bet/worker db:migrate:local",
 		"build": "pnpm -r build",
 		"test": "vitest run",
 		"typecheck": "pnpm -r typecheck",
 		"lint": "biome check .",
-		"format": "biome format --write ."
+		"format": "biome format --write .",
+		"check": "pnpm lint && pnpm typecheck && pnpm test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.8",

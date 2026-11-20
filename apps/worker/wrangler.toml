@@ -9,17 +9,25 @@ database_name = "bet"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
+# Tracked documents (create with `wrangler r2 bucket create bet-docs`).
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "bet-docs"
+
 [vars]
 SEND_GRACE_SECONDS = "20"
 OWNER_WINDOW_SECONDS = "45"
 RETENTION_DAYS = "180"
 STORE_LOCATION = "false"
+DOCS_MAX_MB = "25"
 # ALLOWED_ORIGINS = "https://dashboard.example.com"
 
 # Secrets (not in this file): wrangler secret put API_TOKEN / IP_SALT
+# Follow-up nudges (optional): GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / TOKEN_ENC_KEY
 
 [triggers]
-crons = ["17 3 * * *"] # daily retention purge
+# Every 15 minutes: follow-up nudges. Retention purges once a day (the 03:00 UTC run).
+crons = ["*/15 * * * *"]
 
 # Serve from your own subdomain instead of *.workers.dev:
 # routes = [

@@ -1,4 +1,10 @@
 /** Typed settings stored in chrome.storage.sync. Pure helpers are exported for tests. */
+import {
+	DEFAULT_NUDGES,
+	type NudgeDefaults,
+	normalizeNudgeDefaults,
+} from "./lib/nudges";
+
 export type DefaultMode = "off" | "shared" | "individual";
 
 export interface Settings {
@@ -12,6 +18,8 @@ export interface Settings {
 	notifyMachineOpens: boolean;
 	/** Never track mail to these domains (subdomains included). */
 	neverTrackDomains: string[];
+	/** Follow-up nudge defaults (see lib/nudges.ts). */
+	nudges: NudgeDefaults;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -22,6 +30,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
 	notify: true,
 	notifyMachineOpens: false,
 	neverTrackDomains: [],
+	nudges: DEFAULT_NUDGES,
 });
 
 const MODES: DefaultMode[] = ["off", "shared", "individual"];
@@ -45,6 +54,7 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
 					raw.neverTrackDomains.filter((x) => typeof x === "string"),
 				)
 			: [...d.neverTrackDomains],
+		nudges: normalizeNudgeDefaults(raw.nudges),
 	};
 }
 
@@ -62,8 +72,19 @@ export function normalizeDomains(list: string[]): string[] {
 	return [...out];
 }
 
+/**
+ * HTTPS, or plain HTTP to this machine for local development (`pnpm dev` serves the
+ * Worker on http://localhost:8787; recipients can't reach it, so it's for testing only).
+ */
+export function isValidWorkerUrl(url: string): boolean {
+	return (
+		/^https:\/\//.test(url) ||
+		/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url)
+	);
+}
+
 export function isConfigured(s: Settings): boolean {
-	return /^https:\/\//.test(s.workerUrl) && s.apiToken.length > 0;
+	return isValidWorkerUrl(s.workerUrl) && s.apiToken.length > 0;
 }
 
 /** Origin pattern used for the optional host permission. */

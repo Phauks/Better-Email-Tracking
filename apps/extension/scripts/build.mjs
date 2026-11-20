@@ -49,9 +49,10 @@ async function buildPages() {
 	});
 }
 
-async function buildScript(entry, fileName, format) {
+async function buildScript(entry, fileName, format, plugins = []) {
 	await build({
 		...common,
+		plugins,
 		publicDir: false,
 		build: {
 			outDir,
@@ -96,7 +97,10 @@ const checkAppId = async () => {
 
 await checkAppId();
 await buildPages();
-await buildScript("src/content/index.ts", "content.js", "iife");
+// Content-script Svelte components (e.g. the follow-up popover) inject their own CSS.
+await buildScript("src/content/index.ts", "content.js", "iife", [
+	svelte({ compilerOptions: { css: "injected" } }),
+]);
 await buildScript("src/background/index.ts", "background.js", "es");
 await writeManifestAndAssets();
 console.log(`Built extension into ${outDir}${watch ? " (watching)" : ""}`);
