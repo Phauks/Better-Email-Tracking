@@ -7,7 +7,7 @@ import type {
 	UpdateCampaignRequest,
 } from "@bet/shared";
 import type { ResultOutcome } from "../../api/client";
-import { createChannel, type Handlers } from "../../lib/channel";
+import { createChannel } from "../../lib/channel";
 
 /**
  * Mail merge messaging, kept apart from the core "bet:" union so the feature stays
@@ -38,9 +38,6 @@ export interface MergeResponseMap {
 	"bet-merge:dispatch": { tabs: number };
 }
 
-export type MergeType = MergeRequest["type"];
-export type MergeHandlers = Handlers<MergeRequest, MergeResponseMap>;
-
 export type MergeTabMessage = { type: "bet-merge:wake" };
 export interface WakeResponse {
 	ok: true;
@@ -53,7 +50,6 @@ const merge = createChannel<MergeRequest, MergeResponseMap>(
 	(type) => type.startsWith("bet-merge:") && type !== WAKE,
 );
 
-export const isMergeRequest = merge.is;
 export const callMerge = merge.call;
 /** Background side. */
 export const listenForMergeRequests = merge.listen;

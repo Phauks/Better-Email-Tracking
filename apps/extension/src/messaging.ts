@@ -45,13 +45,11 @@ export interface BgResponseMap
 		DocumentBgResponseMap,
 		NudgeBgResponseMap {}
 
-export type BgType = BgRequest["type"];
 export type BgHandlers = Handlers<BgRequest, BgResponseMap>;
 
 const background = createChannel<BgRequest, BgResponseMap>((type) =>
 	type.startsWith("bet:"),
 );
 
-export const isBgRequest = background.is;
 export const callBackground = background.call;
 export const listenForBgRequests = background.listen;

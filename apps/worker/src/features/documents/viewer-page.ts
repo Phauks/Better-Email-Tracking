@@ -22,7 +22,8 @@ const scriptJson = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 export function viewerCsp(nonce: string): string {
 	return [
 		"default-src 'none'",
-		`script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com 'wasm-unsafe-eval'`,
+		// Only the pinned pdf.js directory, not all of cdnjs.
+		`script-src 'nonce-${nonce}' ${CDN}/ 'wasm-unsafe-eval'`,
 		// pdf.js wraps its cross-origin worker in a blob: module that imports it.
 		"worker-src blob:",
 		"connect-src 'self'",

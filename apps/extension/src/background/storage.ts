@@ -16,5 +16,3 @@ export async function getLocal<K extends keyof LocalState>(
 export async function setLocal(patch: LocalState): Promise<void> {
 	await chrome.storage.local.set(patch);
 }
-
-export const ACTIVITY_KEY = "activity";

@@ -189,6 +189,10 @@ describe("viewer", () => {
 		const nonce = /'nonce-([^']+)'/.exec(csp)?.[1];
 		expect(nonce).toBeTruthy();
 		expect(html).toContain(`nonce="${nonce}"`);
+		// Scripts: the nonce plus the pinned pdf.js directory only.
+		expect(csp).toMatch(
+			/script-src 'nonce-[^']+' https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/pdf\.js\/\d+\.\d+\.\d+\/ /,
+		);
 		expect(res.headers.get("Cache-Control")).toContain("no-store");
 		// Loading the page alone records nothing: the view comes from the script.
 		expect(s.docStore.events).toHaveLength(0);
