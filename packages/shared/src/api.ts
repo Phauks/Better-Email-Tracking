@@ -1,4 +1,5 @@
 import type { EventSource } from "./classify";
+import type { NudgeEventType } from "./nudges";
 
 /**
  * HTTP contract between mail-client extensions and the Worker.
@@ -33,7 +34,8 @@ export interface MarkSentRequest {
 	providerMessageId?: string;
 }
 
-export type EventType = "open" | "click";
+/** Nudge events (nudge_sent, reply) appear in feeds but never count as opens or clicks. */
+export type EventType = "open" | "click" | NudgeEventType;
 export type IgnoreReason = "owner" | "send_grace";
 
 export interface TrackingEvent {
@@ -107,6 +109,8 @@ export interface ThreadStatus {
 	opens: number;
 	clicks: number;
 	lastEventAt?: number;
+	/** Someone replied in the thread (known when a mailbox connector is set up). */
+	replied?: boolean;
 	/** Per-recipient status when the thread's copies were sent individually. */
 	recipients?: { email: string; status: ThreadStatusKind }[];
 }
