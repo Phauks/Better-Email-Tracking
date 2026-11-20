@@ -18,9 +18,9 @@ export interface Counts {
 	lastEventAt?: number;
 }
 
-/** Whether an event contributes to counts at all. */
+/** Whether an event contributes to open/click counts (document views never do). */
 export function isCounted(e: StoredEvent): boolean {
-	if (e.ignored) return false;
+	if (e.ignored || e.type === "doc_view") return false;
 	return e.type === "open" || e.source !== "scanner";
 }
 

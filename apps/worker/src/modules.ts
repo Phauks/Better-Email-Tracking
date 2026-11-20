@@ -1,3 +1,4 @@
+import { documentsModule } from "./documents";
 import { apiModule } from "./routes/api";
 import { trackingModule } from "./routes/tracking";
 import { retentionModule } from "./services/retention";
@@ -11,4 +12,5 @@ export const modules: TrackerModule[] = [
 	trackingModule,
 	apiModule,
 	retentionModule,
+	documentsModule,
 ];

@@ -49,6 +49,9 @@ export interface StoredEvent {
 	/** Salted, truncated SHA-256 of the client IP. Never the raw IP. */
 	ipHash?: string;
 	ignored?: IgnoreReason;
+	/** doc_view events: the document viewed (name kept for the feed). */
+	documentId?: string;
+	documentName?: string;
 }
 
 export type NewEvent = Omit<StoredEvent, "id">;

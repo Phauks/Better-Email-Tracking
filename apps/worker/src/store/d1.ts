@@ -41,6 +41,8 @@ interface EventRow {
 	device: string | null;
 	ip_hash: string | null;
 	ignored: string | null;
+	document_id?: string | null;
+	document_name?: string | null;
 }
 
 /** D1 caps bound parameters per statement at 100; stay well below. */
@@ -97,6 +99,8 @@ function toEvent(row: EventRow): StoredEvent {
 	if (row.device) ev.device = row.device;
 	if (row.ip_hash) ev.ipHash = row.ip_hash;
 	if (row.ignored) ev.ignored = row.ignored as IgnoreReason;
+	if (row.document_id) ev.documentId = row.document_id;
+	if (row.document_name) ev.documentName = row.document_name;
 	return ev;
 }
 
@@ -229,8 +233,8 @@ export class D1Store implements Store {
 	async insertEvent(e: NewEvent): Promise<number> {
 		const row = await this.db
 			.prepare(
-				`INSERT INTO events (message_id, type, link_index, at, source, location, device, ip_hash, ignored)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+				`INSERT INTO events (message_id, type, link_index, at, source, location, device, ip_hash, ignored, document_id, document_name)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			)
 			.bind(
 				e.messageId,
@@ -242,6 +246,8 @@ export class D1Store implements Store {
 				e.device ?? null,
 				e.ipHash ?? null,
 				e.ignored ?? null,
+				e.documentId ?? null,
+				e.documentName ?? null,
 			)
 			.first<{ id: number }>();
 		return row?.id ?? 0;
