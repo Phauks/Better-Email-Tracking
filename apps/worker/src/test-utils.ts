@@ -2,6 +2,7 @@ import type { RegisterMessageRequest } from "@bet/shared";
 import { createApp } from "./app";
 import type { Env } from "./env";
 import { MemoryStore } from "./store/memory";
+import type { TrackerModule } from "./types";
 
 export const TOKEN = "test-token";
 export const T0 = Date.UTC(2026, 10, 1, 12, 0, 0);
@@ -26,10 +27,13 @@ export const CHROME_UA =
 export const GOOGLE_PROXY_UA =
 	"Mozilla/5.0 (Windows NT 5.1; rv:11.0) Gecko Firefox/11.0 (via ggpht.com GoogleImageProxy)";
 
-export function setup(envOverrides: Partial<Env> = {}) {
+export function setup(
+	envOverrides: Partial<Env> = {},
+	modules?: TrackerModule[],
+) {
 	const store = new MemoryStore();
 	const clock = { now: T0 };
-	const app = createApp({ store: () => store, now: () => clock.now });
+	const app = createApp({ store: () => store, now: () => clock.now }, modules);
 	const env: Env = {
 		DB: {} as D1Database,
 		API_TOKEN: TOKEN,

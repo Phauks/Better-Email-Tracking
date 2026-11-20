@@ -11,6 +11,7 @@ redirect (`/c/:id/:idx`) and the authenticated `/api/*` used by the extension.
 - `src/routes/`: `tracking.ts` (pixel/click), `api.ts` (JSON API)
 - `src/services/`: event recording and own-open suppression, summaries, retention
 - `src/store/`: `Store` interface, `D1Store` (production), `MemoryStore` (tests)
+- `src/campaigns/`: mail merge module with its own `CampaignStore` (D1 + memory), routes, stats
 - `migrations/`: D1 schema
 
 ## Setup and deploy
@@ -43,6 +44,29 @@ tracker URL in the extension.
 | `ALLOWED_ORIGINS`      | unset     | Extra CORS origins, comma-separated (extension origins always allowed)    |
 
 Raw IPs are never stored, only a salted, truncated SHA-256.
+
+## Mail merge campaigns
+
+Migration `0004_campaigns.sql` adds `campaigns` and `campaign_recipients`. The Worker only
+keeps the queue; the extension sends each copy from the user's mail tab. A campaign's id is
+the `groupId` of every copy it sends, so engagement comes from the normal message and event
+summaries.
+
+| Route                                              | What                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `POST /api/campaigns`                              | Create with templates, settings and recipients (`draft` or `sending`) |
+| `GET /api/campaigns?status=&limit=`                | List with stats: sent, opened, clicked, machine-only, unopened        |
+| `GET /api/campaigns/:id`                           | Detail with each recipient's state and tracking status                |
+| `PATCH /api/campaigns/:id`                         | `{ action: start \| pause \| resume \| cancel \| retry, reason? }`    |
+| `DELETE /api/campaigns/:id`                        | Delete the campaign (tracked messages are kept)                       |
+| `POST /api/campaigns/:id/lease`                    | `{ runnerId, ttlMs }`: one sending tab at a time (409 if taken)       |
+| `POST /api/campaigns/:id/recipients/:email/result` | `{ state: sending \| sent \| failed \| skipped, messageId?, error? }` |
+
+Recipient states are `queued`, `sending` (claimed; only from `queued`, so a copy is never
+claimed twice), `sent`, `failed` and `skipped`. A campaign becomes `done` when nothing is
+queued or in flight. A `sending` recipient whose message was marked sent is reconciled to
+`sent` on the next read. The daily cron deletes campaigns not updated within
+`RETENTION_DAYS`.
 
 ## Local dev
 
