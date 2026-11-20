@@ -1,13 +1,22 @@
 import {
 	API,
+	type ConnectorKind,
+	type ConnectorStatusResponse,
+	type CreateNudgeRequest,
 	type FeedResponse,
 	type ListMessagesResponse,
+	type ListNudgesResponse,
 	type MarkSentRequest,
 	type MessageDetail,
+	NUDGE_API,
+	type NudgeResponse,
+	type NudgeState,
 	type OwnerViewRequest,
 	type RegisterMessageRequest,
+	type StartConnectorResponse,
 	type ThreadStatusRequest,
 	type ThreadStatusResponse,
+	type UpdateNudgeRequest,
 } from "@bet/shared";
 
 export class ApiError extends Error {
@@ -29,7 +38,7 @@ export class ApiClient {
 	) {}
 
 	private async request<T>(
-		method: "GET" | "POST",
+		method: "GET" | "POST" | "PATCH" | "DELETE",
 		path: string,
 		body?: unknown,
 		auth = true,
@@ -85,6 +94,31 @@ export class ApiClient {
 	}
 	ownerViews(req: OwnerViewRequest): Promise<void> {
 		return this.request("POST", API.ownerViews, req);
+	}
+
+	// Follow-up nudges and mailbox connectors
+	createNudge(req: CreateNudgeRequest): Promise<NudgeResponse> {
+		return this.request("POST", NUDGE_API.nudges, req);
+	}
+	listNudges(
+		opts: { state?: NudgeState; messageId?: string; limit?: number } = {},
+	): Promise<ListNudgesResponse> {
+		return this.request("GET", `${NUDGE_API.nudges}${query(opts)}`);
+	}
+	updateNudge(id: string, req: UpdateNudgeRequest): Promise<NudgeResponse> {
+		return this.request("PATCH", NUDGE_API.nudge(id), req);
+	}
+	cancelNudge(id: string): Promise<NudgeResponse> {
+		return this.request("DELETE", NUDGE_API.nudge(id));
+	}
+	connectorStatus(): Promise<ConnectorStatusResponse> {
+		return this.request("GET", NUDGE_API.connectorStatus);
+	}
+	startConnector(kind: ConnectorKind): Promise<StartConnectorResponse> {
+		return this.request("POST", NUDGE_API.connectorStart(kind));
+	}
+	disconnectConnector(kind: ConnectorKind): Promise<{ revoked: boolean }> {
+		return this.request("DELETE", NUDGE_API.connector(kind));
 	}
 }
 

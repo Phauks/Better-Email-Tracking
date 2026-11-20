@@ -2,11 +2,13 @@
 	import type { MessageSummary } from "@bet/shared";
 	import { onMount } from "svelte";
 	import { filterEntries, groupMessages, messageStatus, type StatusFilter } from "../../lib/dashboard";
+	import { nudgeMessageIds } from "../../lib/nudges";
 	import { plural, relativeTime } from "../../lib/time";
 	import { isConfigured, loadSettings } from "../../settings";
 	import { pageApi } from "../api";
 	import Icon from "../components/Icon.svelte";
 	import StatusIcon from "../components/StatusIcon.svelte";
+	import FollowUps from "./FollowUps.svelte";
 	import MessageDetail from "./MessageDetail.svelte";
 
 	let query = $state("");
@@ -17,6 +19,7 @@
 	let configured = $state(true);
 	let expanded = $state<Record<string, boolean>>({});
 	let focusId = $state<string | null>(null);
+	let view = $state<"emails" | "followups">(location.hash.includes("followups") ? "followups" : "emails");
 
 	const entries = $derived(filterEntries(groupMessages(messages), filter));
 
@@ -25,7 +28,15 @@
 		error = "";
 		try {
 			const api = await pageApi();
-			messages = (await api.listMessages({ q: query.trim(), limit: 200 })).messages;
+			// Nudges are tracked messages too; they show under Follow-ups, not as emails.
+			const [list, hidden] = await Promise.all([
+				api.listMessages({ q: query.trim(), limit: 200 }),
+				api.listNudges({ limit: 500 }).then(
+					(r) => nudgeMessageIds(r.sequences),
+					() => new Set<string>(),
+				),
+			]);
+			messages = list.messages.filter((m) => !hidden.has(m.id));
 		} catch (err) {
 			error = (err as Error).message;
 		} finally {
@@ -37,6 +48,17 @@
 	function onSearch() {
 		clearTimeout(debounce);
 		debounce = setTimeout(load, 250);
+	}
+
+	function showView(next: "emails" | "followups") {
+		view = next;
+		history.replaceState(null, "", next === "followups" ? "#followups" : location.pathname);
+	}
+
+	function openMessage(id: string) {
+		showView("emails");
+		focusId = id;
+		expanded[id] = true;
 	}
 
 	const toggle = (key: string) => {
@@ -96,7 +118,15 @@
 <main>
 	<header>
 		<h1><Icon name="envelope-simple-open" size={22} /> Tracked emails</h1>
-		<div class="tools">
+		<nav class="tabs" aria-label="View">
+			<button class:active={view === "emails"} aria-pressed={view === "emails"} onclick={() => showView("emails")}>
+				<Icon name="envelope-simple-open" /> Emails
+			</button>
+			<button class:active={view === "followups"} aria-pressed={view === "followups"} onclick={() => showView("followups")}>
+				<Icon name="alarm" /> Follow-ups
+			</button>
+		</nav>
+		<div class="tools" class:hidden={view !== "emails"}>
 			<label class="search">
 				<Icon name="magnifying-glass" />
 				<input class="input" type="search" placeholder="Search subject or recipient" bind:value={query} oninput={onSearch} />
@@ -111,6 +141,8 @@
 
 	{#if !configured}
 		<p class="empty">Connect your tracking server in <a href="options.html">settings</a> first.</p>
+	{:else if view === "followups"}
+		<FollowUps onopenmessage={openMessage} />
 	{:else if error}
 		<p class="empty bad">{error}</p>
 	{:else if loading && messages.length === 0}
@@ -178,6 +210,32 @@
 		gap: 8px;
 		font-size: 20px;
 		margin: 0;
+	}
+	.tabs {
+		display: flex;
+		gap: 4px;
+		padding: 3px;
+		border-radius: var(--radius);
+		background: var(--bg-soft);
+	}
+	.tabs button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 12px;
+		border: 0;
+		border-radius: 6px;
+		background: none;
+		cursor: pointer;
+		color: var(--text-muted);
+	}
+	.tabs button.active {
+		background: var(--bg);
+		color: var(--text);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+	}
+	.hidden {
+		visibility: hidden;
 	}
 	.tools {
 		display: flex;

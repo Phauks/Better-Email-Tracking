@@ -2,10 +2,10 @@
 	import { onMount } from "svelte";
 	import { INDIVIDUAL_TOOLTIP } from "../../lib/copy";
 	import {
-		DEFAULT_SETTINGS,
 		type DefaultMode,
 		loadSettings,
 		normalizeDomains,
+		normalizeSettings,
 		normalizeWorkerUrl,
 		type Settings,
 		saveSettings,
@@ -13,8 +13,9 @@
 	} from "../../settings";
 	import { ApiClient } from "../../api/client";
 	import Icon from "../components/Icon.svelte";
+	import FollowUpSettings from "./FollowUpSettings.svelte";
 
-	let s = $state<Settings>({ ...DEFAULT_SETTINGS, neverTrackDomains: [] });
+	let s = $state<Settings>(normalizeSettings({}));
 	let domainsText = $state("");
 	let saved = $state("");
 	let saveError = $state("");
@@ -147,6 +148,8 @@
 				<small class="muted">One per line. Subdomains are included. Mail to any of these is sent untracked.</small>
 			</label>
 		</section>
+
+		<FollowUpSettings bind:nudges={s.nudges} />
 
 		<section>
 			<h2>Notifications</h2>

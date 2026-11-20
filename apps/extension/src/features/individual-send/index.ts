@@ -2,6 +2,7 @@ import { newId } from "@bet/shared";
 import { allRecipients, uniqueRecipients } from "../../lib/recipients";
 import type { ComposeSession, SentInfo } from "../../providers/types";
 import { getMode } from "../compose-mode";
+import { emitTrackedSent } from "../sent-events";
 import {
 	errorMessage,
 	neverTrackReason,
@@ -35,6 +36,7 @@ async function sendCopy(
 	ctx: FeatureContext,
 	copy: PreparedCopy,
 	subject: string,
+	origin: { session: ComposeSession; groupId: string },
 ): Promise<void> {
 	const copySession = await ctx.adapter.openCompose({
 		to: [copy.plan.recipient.email],
@@ -43,11 +45,20 @@ async function sendCopy(
 	});
 	await settle(300); // let the client settle recipients/body before sending
 	const info = await sendAndWait(copySession);
-	ctx.api
-		.markSent(copy.plan.id, { sentAt: Date.now(), ...info })
-		.catch((err) => {
-			console.warn("[bet] markSent failed", err);
-		});
+	const sentAt = Date.now();
+	ctx.api.markSent(copy.plan.id, { sentAt, ...info }).catch((err) => {
+		console.warn("[bet] markSent failed", err);
+	});
+	emitTrackedSent({
+		session: origin.session,
+		messageId: copy.plan.id,
+		mode: "individual",
+		groupId: origin.groupId,
+		sentAt,
+		to: [copy.plan.recipient],
+		cc: [],
+		...info,
+	});
 }
 
 interface PreparedCopy {
@@ -110,7 +121,7 @@ async function maybeSplit(ctx: FeatureContext, session: ComposeSession) {
 	let sent = 0;
 	for (const copy of copies) {
 		try {
-			await sendCopy(ctx, copy, subject);
+			await sendCopy(ctx, copy, subject, { session, groupId: plan.groupId });
 			sent++;
 		} catch (err) {
 			const remaining = copies.slice(sent).map((c) => c.plan.recipient.email);

@@ -21,6 +21,7 @@ export interface Counts {
 /** Whether an event contributes to counts at all. */
 export function isCounted(e: StoredEvent): boolean {
 	if (e.ignored) return false;
+	if (e.type !== "open" && e.type !== "click") return false; // nudge_sent, reply
 	return e.type === "open" || e.source !== "scanner";
 }
 
@@ -134,6 +135,12 @@ export function threadStatus(
 	}
 	const out: ThreadStatus = { status, opens, clicks };
 	if (lastEventAt !== undefined) out.lastEventAt = lastEventAt;
+	if (
+		threadMessages.some((m) =>
+			eventsByMessage.get(m.id)?.some((e) => e.type === "reply" && !e.ignored),
+		)
+	)
+		out.replied = true;
 
 	const individual = new Map<string, StoredMessage>();
 	for (const m of threadMessages)
