@@ -71,7 +71,8 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
   need tracking on for that email, and only work for mail sent from the connected
   Gmail account.
 - **Popup and dashboard.** The popup shows recent activity. The dashboard is a
-  full tab with search, a status filter, individual sends grouped per recipient,
+  full tab with search, a status filter (both run on the Worker, and lists load a page
+  at a time with **Load more**), individual sends grouped per recipient,
   and an event timeline that labels each event's source (Gmail proxy, Apple
   privacy proxy, scanner, direct) and device. Its **Follow-ups** tab lists every
   sequence with its state, next send time and history, with pause, resume and
@@ -107,7 +108,12 @@ All settings live in `chrome.storage.sync`. See `src/settings.ts` for the types 
 3. **Preview** each recipient's rendered email. Choose what happens when a field is empty:
    skip that recipient (default) or send with a blank.
 4. **Send settings.** Random wait between emails (default 20 to 40 s), a per-run cap
-   (default 50, after which the campaign pauses until you resume it) and link tracking.
+   (default 50, after which the campaign pauses until you resume it), link tracking, and
+   **Follow up until reply**: Off, Default (your policy from Options → Follow-ups, on by
+   default when "Follow up on every tracked email" is set) or Custom. Nudge text can use
+   the campaign's fields (`{{first_name|there}}`, `{{company}}`); the preview uses the
+   first recipient. A warning shows when Gmail isn't connected. The Worker starts each
+   copy's sequence when that copy is confirmed sent, so it needs no open tab.
 
 Sending runs in an open Gmail tab, through the same per-copy pipeline as "Track each
 recipient" (`features/send-copy.ts`): each copy gets its own message id and
@@ -119,9 +125,12 @@ to check your Sent folder (never resent automatically). After three failures in 
 campaign pauses.
 
 The campaign list shows live progress and each recipient's status with the same icons as
-the sent list. You can pause, resume, cancel or retry failed recipients. **Follow up with
-non-openers** starts a new draft for recipients who have not opened, or were only opened
-by a privacy proxy.
+the sent list; recipients load a page at a time, with a state filter and search. You can
+pause, resume, cancel or retry failed recipients. With follow-ups on, each recipient shows
+its follow-up ("1 of 3 sent · next …", Replied, …), and **Pause / Resume / Cancel
+follow-ups** act on all of the campaign's sequences. **Follow up with non-openers** starts
+a new draft for every sent recipient who has not opened, or was only opened by a privacy
+proxy.
 
 Gmail limits how many emails and recipients you can send per day, and the limits depend
 on the account type. See Google's pages for
@@ -171,7 +180,8 @@ src/
   ui/               Svelte 5 pages and views
     popup/  options/  dashboard/   pages; dashboard/ is only the tab shell
     emails/  documents/  mail-merge/  follow-ups/   one folder per dashboard view
-    components/     Icon, StatusIcon, ListState (loading/error/empty), NotConfigured
+    components/     Icon, StatusIcon, ListState (loading/error/empty), LoadMore, NotConfigured
+    paged.svelte.ts PagedList: a cursor-paginated list (reload, more, live refresh)
     icons.ts        the single Phosphor icon registry
 ```
 
@@ -213,7 +223,8 @@ No feature code needs to change.
   planning, never-track domains, badge mapping, feed text, settings defaults, the
   status cache, dashboard grouping, follow-up policies and template rendering, and the
   mail merge queue (throttle scheduling, per-run cap, resume after reload, lease,
-  failures), campaign helpers and the Worker client.
+  failures, next-recipient queries), campaign and follow-up helpers, pagination helpers
+  and the Worker client.
 - Type check: `pnpm --filter @bet/extension typecheck`.
 - The popup, options and dashboard pages were smoke-tested in Chromium against a
   mocked Worker.
@@ -227,3 +238,5 @@ No feature code needs to change.
   - mail merge sending from a Gmail tab (compose, confirm, throttle, resume after reload)
   - the follow-up popover, scheduling after a send (shared and individual), and
     the Options → Follow-ups Gmail connection
+  - a mail merge campaign with follow-ups (sequences appear per recipient after each
+    copy is sent; pause, resume and cancel all)

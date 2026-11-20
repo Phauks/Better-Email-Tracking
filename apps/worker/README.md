@@ -15,9 +15,10 @@ authenticated `/api/*` used by the extension.
   `validate.ts`, and `store/` (`Store` interface, `D1Store`, `MemoryStore` for tests)
 - `src/features/<name>/`: one folder per feature module, each with `index.ts` (the module
   and its injectable deps), `routes.ts`, `validate.ts` and `store/{types,d1,memory}.ts`
-  - `documents/`: tracked documents (R2 `ObjectStore` in `objects.ts`, viewer page in `viewer-page.ts`, `stats.ts`)
+  - `documents/`: tracked documents (R2 `ObjectStore` in `objects.ts`, viewer page in `viewer-page.ts`, `stats.ts`, PDF page count in `pdf.ts`)
   - `campaigns/`: mail merge queue and per-campaign stats (`stats.ts`)
-  - `nudges/`: follow-up nudges (scheduler `runner.ts`, send windows `schedule.ts`, secrets `env.ts`)
+  - `nudges/`: follow-up nudges (scheduler `runner.ts`, send windows `schedule.ts`, secrets `env.ts`).
+    `public.ts` is the only door for other features: the `FollowUpService` in `service.ts`
 - `src/connectors/`: `MailboxConnector` interface, Gmail implementation, Google OAuth, MIME builder, `FakeMailbox` for tests
 - `src/lib/`: shared helpers (`parse.ts` request parsing, `d1.ts` query helpers, auth, CORS, hashing, crypto)
 - `migrations/`: D1 schema
@@ -116,7 +117,8 @@ How it works:
   default and time zone.
 - Retention purges once a day (the 03:00 UTC run) and also removes finished sequences.
 
-API (bearer auth): `POST/GET /api/nudges`, `GET/PATCH/DELETE /api/nudges/:id`
+API (bearer auth): `POST/GET /api/nudges` (list: `state`, `messageId`, `groupId`, cursor),
+`GET/PATCH/DELETE /api/nudges/:id`
 (`PATCH {action: "pause" | "resume", steps?, stopOnOpen?, sendWindow?}`),
 `GET /api/connectors/status`, `POST /api/connectors/google/start`,
 `DELETE /api/connectors/google`. Public: `GET /oauth/google/callback`. Types are in
@@ -125,6 +127,40 @@ API (bearer auth): `POST/GET /api/nudges`, `GET/PATCH/DELETE /api/nudges/:id`
 Other providers: implement `MailboxConnector` (`findReplies`, `sendReply`) in
 `src/connectors/`, add it to `resolveConnector` in `registry.ts`, and add its OAuth
 routes next to Google's.
+
+Nudge text is rendered with the mail merge engine (`renderTemplate` in
+`packages/shared/src/merge.ts`): `{{field}}`, `{{field|fallback}}`, values HTML-escaped.
+Fields come from `nudgeFields`: `firstName`/`first_name`, `name` and `email` for a single
+recipient, plus a mail merge copy's own fields. Old templates
+(`{{firstName|there}}`, `{{name}}`, `{{email}}`) render as before; an unknown placeholder
+now renders empty.
+
+## Lists, pagination and stats
+
+Every list endpoint is keyset-paginated: it answers `nextCursor` when more rows follow,
+and the client passes it back as `?cursor=` (opaque; a malformed cursor is a 400).
+`?limit=` is clamped to the per-list maximum in `PAGE_LIMITS`
+(`packages/shared/src/pagination.ts`): 50 by default and at most 200 for messages,
+campaigns, documents and nudges; 100 and 500 for campaign and document recipients.
+
+| List                                | Order                      | Filters                                      |
+| ----------------------------------- | -------------------------- | -------------------------------------------- |
+| `GET /api/messages`                 | newest first               | `q` (subject/recipient), `status`, `groupId` |
+| `GET /api/campaigns`                | newest first               | `status`                                     |
+| `GET /api/campaigns/:id/recipients` | send order                 | `state` (comma-separated), `q`               |
+| `GET /api/documents`                | newest first               |                                              |
+| `GET /api/documents/:id/recipients` | most recently viewed first |                                              |
+| `GET /api/nudges`                   | newest first               | `state`, `messageId`, `groupId`              |
+
+Campaign and document details carry the first page of recipients plus
+`recipientsNextCursor`. Nudge messages (`messages.kind = 'nudge'`) never appear in
+`/api/messages` or campaign stats. Open, click and status counts are SQL aggregates
+(`COUNT_COLUMNS` in `core/store/d1.ts`, campaign engagement in `groupEngagement`,
+document stats in `features/documents/store/d1.ts`); the memory stores compute the same
+numbers with the reference functions in `summary.ts` and `documents/stats.ts`, and
+`core/store/aggregates.test.ts` checks them against each other. Every query is bounded
+(page size, `MAX_GROUP_MESSAGES` for thread status, `TIMELINE_LIMIT` for a document's
+activity). Migration `0006_followups_and_scale.sql` adds the indexes these use.
 
 ## Settings (`[vars]` in wrangler.toml)
 
@@ -148,8 +184,9 @@ you like; uploads answer 503 until a bucket is bound). Metadata and views are in
 | Route                                  | Auth   | What                                                                           |
 | -------------------------------------- | ------ | ------------------------------------------------------------------------------ |
 | `POST /api/documents?name=<file name>` | bearer | Upload (raw body with `Content-Type`, or multipart field `file`). `{id, url}`  |
-| `GET /api/documents`                   | bearer | List with views, unique viewers, downloads, total reading time                 |
-| `GET /api/documents/:id`               | bearer | Per-recipient rows, per-page reading time, activity                            |
+| `GET /api/documents`                   | bearer | List with views, unique viewers, downloads, total reading time (paginated)     |
+| `GET /api/documents/:id`               | bearer | First page of per-recipient rows, per-page reading time, recent activity       |
+| `GET /api/documents/:id/recipients`    | bearer | More per-recipient rows (`cursor`, `limit`)                                    |
 | `GET /api/documents/:id/file`          | bearer | Owner preview; never counted                                                   |
 | `POST /api/documents/attach`           | bearer | `{messageId, documentIds}`: which documents a message links to                 |
 | `DELETE /api/documents/:id`            | bearer | Deletes the object, its rows and its feed entries                              |
@@ -163,7 +200,9 @@ recipient. Views run through the same classification and own-open suppression as
 opens (send grace, owner window, owner IP); page and download beacons inherit the
 classification of their view. Views of a tracked message also land in the events
 table as `doc_view`, so they show up in `/api/feed` but never change open or click
-counts. The daily cron purges document events older than `RETENTION_DAYS` and
+counts. A PDF's page count is read from the file at upload (the page tree's `/Count`,
+also inside compressed object streams); the count the viewer reports is only used when
+the upload couldn't tell, and only the first time. The daily cron purges document events older than `RETENTION_DAYS` and
 documents uploaded before then, with their R2 objects.
 
 ## Mail merge campaigns
@@ -173,21 +212,35 @@ keeps the queue; the extension sends each copy from the user's mail tab. A campa
 the `groupId` of every copy it sends, so engagement comes from the normal message and event
 summaries.
 
-| Route                                              | What                                                                  |
-| -------------------------------------------------- | --------------------------------------------------------------------- |
-| `POST /api/campaigns`                              | Create with templates, settings and recipients (`draft` or `sending`) |
-| `GET /api/campaigns?status=&limit=`                | List with stats: sent, opened, clicked, machine-only, unopened        |
-| `GET /api/campaigns/:id`                           | Detail with each recipient's state and tracking status                |
-| `PATCH /api/campaigns/:id`                         | `{ action: start \| pause \| resume \| cancel \| retry, reason? }`    |
-| `DELETE /api/campaigns/:id`                        | Delete the campaign (tracked messages are kept)                       |
-| `POST /api/campaigns/:id/lease`                    | `{ runnerId, ttlMs }`: one sending tab at a time (409 if taken)       |
-| `POST /api/campaigns/:id/recipients/:email/result` | `{ state: sending \| sent \| failed \| skipped, messageId?, error? }` |
+| Route                                              | What                                                                                     |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST /api/campaigns`                              | Create with templates, settings and recipients (`draft` or `sending`)                    |
+| `GET /api/campaigns?status=&cursor=&limit=`        | List with stats: sent, opened, clicked, machine-only, unopened                           |
+| `GET /api/campaigns/:id?state=&q=&cursor=&limit=`  | Detail with the first page of recipients and follow-up stats                             |
+| `GET /api/campaigns/:id/recipients`                | Recipients page: state, tracking status and follow-up of each                            |
+| `POST /api/campaigns/:id/follow-ups`               | `{ action: pause \| resume \| cancel }` for all of its follow-ups                        |
+| `PATCH /api/campaigns/:id`                         | `{ action: start \| pause \| resume \| cancel \| retry, reason? }`                       |
+| `DELETE /api/campaigns/:id`                        | Delete the campaign (tracked messages are kept)                                          |
+| `POST /api/campaigns/:id/lease`                    | `{ runnerId, ttlMs }`: one sending tab at a time (409 if taken)                          |
+| `POST /api/campaigns/:id/recipients/:email/result` | `{ state: sending \| sent \| failed \| skipped, messageId?, error?, providerThreadId? }` |
 
 Recipient states are `queued`, `sending` (claimed; only from `queued`, so a copy is never
 claimed twice), `sent`, `failed` and `skipped`. A campaign becomes `done` when nothing is
 queued or in flight. A `sending` recipient whose message was marked sent is reconciled to
 `sent` on the next read. The daily cron deletes campaigns not updated within
 `RETENTION_DAYS`.
+
+**Follow up until reply.** A campaign may carry a follow-up policy (`followUp` on create:
+steps, `stopOnOpen`, optional send window; stored in `campaigns.follow_up`, migration
+0006). When a recipient is confirmed `sent` (the result route, or reconciliation), the
+campaign calls `FollowUpService.start` from `features/nudges/public.ts`, injected as
+`CampaignsDeps.followUps`. It creates a nudge sequence for that copy with the copy's
+merge fields and `groupId` = the campaign id, and is idempotent (a copy that already has
+a sequence keeps it). It is skipped, and logged, when the copy has no thread id yet or no
+mailbox is connected; connecting later does not backfill. `POST /follow-ups` pauses,
+resumes or cancels every sequence of the campaign in one batched statement and records
+the state on the campaign: copies sent while paused get a paused sequence, and none once
+cancelled. Deleting a campaign leaves its sequences running (see Follow-ups).
 
 ## Local dev
 
